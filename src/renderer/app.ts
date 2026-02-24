@@ -10,6 +10,8 @@ class StudyTrackerApp {
   private modules: Module[] = [];
   private currentModule: Module | null = null;
   private isDetailView = false;
+  private isEditMode = false;
+  private draggedModule: Module | null = null;
   private storageKey = 'study-tracker-modules';
 
   constructor() {
@@ -129,10 +131,15 @@ class StudyTrackerApp {
     return `
       <div class="header">
         <h1>Study Modules</h1>
-        <button class="add-module-btn" id="addModuleBtn">+ New Module</button>
+        <div class="header-buttons">
+          <button class="edit-mode-btn ${this.isEditMode ? 'active' : ''}" id="editModeBtn" title="${this.isEditMode ? 'Done Editing' : 'Edit Modules'}">
+            ${this.isEditMode ? '✓ Done' : '✎ Edit'}
+          </button>
+          <button class="add-module-btn" id="addModuleBtn">+ New Module</button>
+        </div>
       </div>
       <div class="main-content">
-        <div class="module-grid" id="moduleGrid">
+        <div class="module-grid" id="moduleGrid" ${this.isEditMode ? 'data-edit-mode="true"' : ''}>
           ${
             this.modules.length === 0
               ? `
@@ -154,7 +161,9 @@ class StudyTrackerApp {
     if (hasImage) {
       // Card with image background
       return `
-        <div class="module-card" data-module-id="${module.id}">
+        <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
+          ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
+          ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
           <img class="card-background" src="${module.image}" alt="${module.name}">
           <div class="card-overlay"></div>
           <div class="card-content">
@@ -166,7 +175,9 @@ class StudyTrackerApp {
     } else {
       // Card without image - gradient placeholder with centered title only
       return `
-        <div class="module-card" data-module-id="${module.id}">
+        <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
+          ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
+          ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
           <div class="card-placeholder">
             <div class="card-title">${this.escapeHtml(module.name)}</div>
           </div>
@@ -199,20 +210,47 @@ class StudyTrackerApp {
   }
 
   private attachEventListeners(): void {
+    // Edit mode button
+    const editModeBtn = document.getElementById('editModeBtn');
+    if (editModeBtn) {
+      editModeBtn.addEventListener('click', () => this.toggleEditMode());
+    }
+
     // Main view events
     const addModuleBtn = document.getElementById('addModuleBtn');
     if (addModuleBtn) {
       addModuleBtn.addEventListener('click', () => this.openAddModuleModal());
     }
 
-    // Module card clicks
-    const moduleCards = document.querySelectorAll('.module-card');
-    moduleCards.forEach((card) => {
-      card.addEventListener('click', () => {
-        const moduleId = (card as HTMLElement).dataset.moduleId;
-        this.openDetailView(moduleId!);
+    // Module card clicks (only when not in edit mode)
+    if (!this.isEditMode) {
+      const moduleCards = document.querySelectorAll('.module-card');
+      moduleCards.forEach((card) => {
+        card.addEventListener('click', () => {
+          const moduleId = (card as HTMLElement).dataset.moduleId;
+          this.openDetailView(moduleId!);
+        });
       });
-    });
+    } else {
+      // Delete button handlers (only in edit mode)
+      const deleteButtons = document.querySelectorAll('.delete-btn');
+      deleteButtons.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const moduleId = (btn as HTMLElement).dataset.moduleId;
+          this.deleteModule(moduleId!);
+        });
+      });
+
+      // Drag and drop handlers
+      const moduleCards = document.querySelectorAll('.module-card');
+      moduleCards.forEach((card) => {
+        card.addEventListener('dragstart', (e) => this.handleDragStart(e as DragEvent));
+        card.addEventListener('dragover', (e) => this.handleDragOver(e as DragEvent));
+        card.addEventListener('drop', (e) => this.handleDrop(e as DragEvent));
+        card.addEventListener('dragend', (e) => this.handleDragEnd(e as DragEvent));
+      });
+    }
 
     // Detail view back button
     const backBtn = document.getElementById('backBtn');
@@ -356,6 +394,75 @@ class StudyTrackerApp {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  private toggleEditMode(): void {
+    this.isEditMode = !this.isEditMode;
+    this.render();
+  }
+
+  private deleteModule(moduleId: string): void {
+    if (confirm('Are you sure you want to delete this module?')) {
+      this.modules = this.modules.filter((m) => m.id !== moduleId);
+      this.saveModules();
+      this.render();
+    }
+  }
+
+  private handleDragStart(e: DragEvent): void {
+    const card = (e.target as HTMLElement).closest('.module-card') as HTMLElement;
+    if (card) {
+      const moduleId = card.dataset.moduleId;
+      this.draggedModule = this.modules.find((m) => m.id === moduleId) || null;
+      card.classList.add('dragging');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+      }
+    }
+  }
+
+  private handleDragOver(e: DragEvent): void {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+    const card = (e.target as HTMLElement).closest('.module-card') as HTMLElement;
+    if (card) {
+      card.classList.add('drag-over');
+    }
+  }
+
+  private handleDrop(e: DragEvent): void {
+    e.preventDefault();
+    const card = (e.target as HTMLElement).closest('.module-card') as HTMLElement;
+    if (card && this.draggedModule) {
+      const targetModuleId = card.dataset.moduleId;
+      if (targetModuleId && targetModuleId !== this.draggedModule.id) {
+        const draggedIndex = this.modules.findIndex((m) => m.id === this.draggedModule!.id);
+        const targetIndex = this.modules.findIndex((m) => m.id === targetModuleId);
+
+        if (draggedIndex !== -1 && targetIndex !== -1) {
+          // Swap modules
+          [this.modules[draggedIndex], this.modules[targetIndex]] = [
+            this.modules[targetIndex],
+            this.modules[draggedIndex],
+          ];
+          this.saveModules();
+          this.render();
+        }
+      }
+      card.classList.remove('drag-over');
+    }
+  }
+
+  private handleDragEnd(e: DragEvent): void {
+    const card = (e.target as HTMLElement).closest('.module-card') as HTMLElement;
+    if (card) {
+      card.classList.remove('dragging');
+    }
+    const allCards = document.querySelectorAll('.module-card');
+    allCards.forEach((c) => c.classList.remove('drag-over'));
+    this.draggedModule = null;
   }
 }
 

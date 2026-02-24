@@ -53,6 +53,37 @@ body {
   font-weight: 600;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.edit-mode-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  color: #00d4ff;
+  padding: 10px 20px;
+  border-radius: 25px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.edit-mode-btn:hover {
+  background: rgba(0, 212, 255, 0.1);
+  border-color: #00d4ff;
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+}
+
+.edit-mode-btn.active {
+  background: linear-gradient(135deg, #00d4ff, #0099cc);
+  border-color: #00d4ff;
+  color: white;
+  box-shadow: 0 8px 20px rgba(0, 212, 255, 0.4);
+}
+
 .add-module-btn {
   background: linear-gradient(135deg, #00d4ff, #0099cc);
   border: none;
@@ -115,6 +146,70 @@ body {
 
 .module-card:hover .card-background {
   transform: scale(1.05);
+}
+
+/* Delete Button (Edit Mode) */
+.delete-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 59, 48, 0.9);
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);
+}
+
+.delete-btn:hover {
+  background: rgba(255, 59, 48, 1);
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(255, 59, 48, 0.5);
+}
+
+/* Drag Handle (Edit Mode) */
+.drag-handle {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 9;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 212, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #00d4ff;
+  cursor: grab;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(0, 212, 255, 0.3);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+  background: rgba(0, 212, 255, 0.4);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.5);
+}
+
+/* Dragging State */
+.module-card.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+}
+
+.module-card.drag-over {
+  border: 2px dashed #00d4ff;
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
 }
 
 /* Card Overlay - Dark gradient for text visibility */
