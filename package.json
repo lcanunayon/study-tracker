@@ -1,0 +1,43 @@
+{
+  "name": "study-tracker",
+  "version": "0.1.0",
+  "description": "A beautiful and efficient study tracking desktop application",
+  "main": "dist/main/main.js",
+  "homepage": "./",
+  "author": "Your Name",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "tsc --watch",
+    "dev:backend": "cd backend && cmake -B build && cmake --build build && cd ..",
+    "build": "npm run build:backend && npm run build:frontend && npm run electron:build",
+    "build:frontend": "tsc",
+    "build:backend": "cd backend && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release && cd ..",
+    "electron:dev": "electron .",
+    "electron:build": "electron-builder",
+    "start": "npm run build && electron ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "electron": "^27.0.0",
+    "electron-builder": "^24.0.0",
+    "typescript": "^5.0.0",
+    "concurrently": "^8.0.0"
+  },
+  "dependencies": {},
+  "build": {
+    "appId": "com.studytracker.app",
+    "productName": "Study Tracker",
+    "files": [
+      "dist/**/*",
+      "backend/build/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    }
+  }
+}
