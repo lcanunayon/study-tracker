@@ -14,8 +14,48 @@ class StudyTrackerApp {
 
   constructor() {
     this.loadModules();
+    this.initializeHTML();
     this.render();
     this.attachEventListeners();
+  }
+
+  private initializeHTML(): void {
+    const root = document.getElementById('app');
+    if (root) {
+      root.innerHTML = `
+        <div class="main-container" id="mainContainer"></div>
+        <div class="modal-overlay" id="modalOverlay" style="display: none;">
+          <div class="modal" id="addModuleModal">
+            <h2>Create New Module</h2>
+            <form id="addModuleForm">
+              <div class="form-group">
+                <label for="moduleName">Module Name *</label>
+                <input type="text" id="moduleName" placeholder="e.g., React Hooks" required>
+              </div>
+
+              <div class="form-group">
+                <label for="moduleDescription">Description *</label>
+                <textarea id="moduleDescription" placeholder="What does this module teach?" required></textarea>
+              </div>
+
+              <div class="form-group">
+                <label>Module Cover Image</label>
+                <div class="image-upload-area" id="imageUploadArea">
+                  <input type="file" id="imageInput" accept="image/*">
+                  <div class="upload-text">Click to upload or drag & drop an image</div>
+                </div>
+                <img id="imagePreview" class="image-preview" style="display: none;" alt="Preview">
+              </div>
+
+              <div class="form-actions">
+                <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Module</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+    }
   }
 
   private loadModules(): void {
@@ -73,13 +113,13 @@ class StudyTrackerApp {
   }
 
   private render(): void {
-    const root = document.getElementById('app');
-    if (!root) return;
+    const container = document.getElementById('mainContainer');
+    if (!container) return;
 
     if (this.isDetailView && this.currentModule) {
-      root.innerHTML = this.renderDetailView();
+      container.innerHTML = this.renderDetailView();
     } else {
-      root.innerHTML = this.renderMainView();
+      container.innerHTML = this.renderMainView();
     }
 
     this.attachEventListeners();
@@ -105,27 +145,34 @@ class StudyTrackerApp {
           }
         </div>
       </div>
-      ${this.renderModalMarkup()}
     `;
   }
 
   private renderModuleCard(module: Module): string {
     const hasImage = module.image && module.image.startsWith('data:');
     
-    return `
-      <div class="module-card" data-module-id="${module.id}">
-        ${
-          hasImage
-            ? `<img class="card-background" src="${module.image}" alt="${module.name}">`
-            : `<div class="card-placeholder"><div class="card-title">${this.escapeHtml(module.name)}</div></div>`
-        }
-        <div class="card-overlay"></div>
-        <div class="card-content">
-          <div class="card-title">${this.escapeHtml(module.name)}</div>
-          <div class="card-description">${this.escapeHtml(module.description)}</div>
+    if (hasImage) {
+      // Card with image background
+      return `
+        <div class="module-card" data-module-id="${module.id}">
+          <img class="card-background" src="${module.image}" alt="${module.name}">
+          <div class="card-overlay"></div>
+          <div class="card-content">
+            <div class="card-title">${this.escapeHtml(module.name)}</div>
+            <div class="card-description">${this.escapeHtml(module.description)}</div>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    } else {
+      // Card without image - gradient placeholder with centered title only
+      return `
+        <div class="module-card" data-module-id="${module.id}">
+          <div class="card-placeholder">
+            <div class="card-title">${this.escapeHtml(module.name)}</div>
+          </div>
+        </div>
+      `;
+    }
   }
 
   private renderDetailView(): string {
@@ -146,41 +193,6 @@ class StudyTrackerApp {
               : ''
           }
           <div class="detail-description">${this.escapeHtml(this.currentModule.description)}</div>
-        </div>
-      </div>
-    `;
-  }
-
-  private renderModalMarkup(): string {
-    return `
-      <div class="modal-overlay" id="modalOverlay" style="display: none;">
-        <div class="modal" id="addModuleModal">
-          <h2>Create New Module</h2>
-          <form id="addModuleForm">
-            <div class="form-group">
-              <label for="moduleName">Module Name *</label>
-              <input type="text" id="moduleName" placeholder="e.g., React Hooks" required>
-            </div>
-
-            <div class="form-group">
-              <label for="moduleDescription">Description *</label>
-              <textarea id="moduleDescription" placeholder="What does this module teach?" required></textarea>
-            </div>
-
-            <div class="form-group">
-              <label>Module Cover Image</label>
-              <div class="image-upload-area" id="imageUploadArea">
-                <input type="file" id="imageInput" accept="image/*">
-                <div class="upload-text">Click to upload or drag & drop an image</div>
-              </div>
-              <img id="imagePreview" class="image-preview" style="display: none;" alt="Preview">
-            </div>
-
-            <div class="form-actions">
-              <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
-              <button type="submit" class="btn btn-primary">Create Module</button>
-            </div>
-          </form>
         </div>
       </div>
     `;
@@ -295,7 +307,6 @@ class StudyTrackerApp {
     const imageInput = document.getElementById('imageInput') as HTMLInputElement;
 
     if (modalOverlay) {
-      modalOverlay.style.display = 'flex';
       // Reset form
       if (imagePreview) {
         imagePreview.style.display = 'none';
@@ -304,13 +315,25 @@ class StudyTrackerApp {
       if (imageInput) imageInput.value = '';
       const form = document.getElementById('addModuleForm') as HTMLFormElement;
       if (form) form.reset();
+      
+      // Show with opacity transition
+      modalOverlay.style.opacity = '0';
+      modalOverlay.style.pointerEvents = 'auto';
+      modalOverlay.style.display = 'flex';
+      // Trigger reflow to start transition
+      void modalOverlay.offsetHeight;
+      modalOverlay.style.opacity = '1';
     }
   }
 
   private closeAddModuleModal(): void {
     const modalOverlay = document.getElementById('modalOverlay');
     if (modalOverlay) {
-      modalOverlay.style.display = 'none';
+      modalOverlay.style.opacity = '0';
+      modalOverlay.style.pointerEvents = 'none';
+      setTimeout(() => {
+        if (modalOverlay) modalOverlay.style.display = 'none';
+      }, 300);
     }
   }
 
