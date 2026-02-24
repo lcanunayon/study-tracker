@@ -297,8 +297,23 @@ body {
   background: rgba(0, 0, 0, 0.95);
   z-index: 200;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   animation: slideIn 0.4s ease;
+}
+
+.detail-left {
+  flex: 0 0 45%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border-right: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+.workspace-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
 }
 
 @keyframes slideIn {
@@ -315,6 +330,7 @@ body {
   align-items: center;
   padding: 20px 40px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .back-btn {
@@ -333,18 +349,19 @@ body {
 
 .detail-header h2 {
   font-size: 28px;
+  margin: 0;
 }
 
 .detail-content {
   flex: 1;
   padding: 40px;
-  /*overflow-y: auto;*/
+  overflow-y: auto;
 }
 
 .detail-image {
   width: 100%;
-  max-width: 500px;
-  height: 300px;
+  max-width: 400px;
+  height: 250px;
   object-fit: cover;
   border-radius: 12px;
   margin-bottom: 30px;
@@ -354,7 +371,7 @@ body {
   font-size: 16px;
   line-height: 1.8;
   color: rgba(255, 255, 255, 0.8);
-  max-width: 800px;
+  max-width: 600px;
 }
 
 /* Modal */
@@ -538,4 +555,63 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #00e8ff, #00aadd);
   box-shadow: 0 0 10px rgba(0, 212, 255, 0.6);
+}
+
+/* Workspace Styles */
+.workspace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.6);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+.tool-btn {
+  background: rgba(0, 212, 255, 0.1);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  color: #00d4ff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.tool-btn:hover {
+  background: rgba(0, 212, 255, 0.2);
+  border-color: #00d4ff;
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+}
+
+.tool-btn.active {
+  background: #00d4ff;
+  color: #0f0f0f;
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.6);
+}
+
+#drawColor {
+  width: 40px;
+  height: 36px;
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.workspace-canvas {
+  flex: 1;
+  display: block;
+  background: radial-gradient(circle, rgba(0, 212, 255, 0.05) 1px, transparent 1px);
+  background-size: 30px 30px;
+  cursor: crosshair;
+  image-rendering: pixelated;
+}
+
+.workspace-canvas.pan-cursor {
+  cursor: grab;
+}
+
+.workspace-canvas.eraser-cursor {
+  cursor: cell;
 }

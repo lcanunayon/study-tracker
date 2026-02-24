@@ -313,6 +313,11 @@ class StudyTrackerApp {
     if (backBtn) {
       backBtn.addEventListener('click', () => this.closeDetailView());
     }
+
+    // Initialize workspace if in detail view
+    if (this.isDetailView && this.currentModule) {
+      this.initializeWorkspace();
+    }
   }
 
   private handleImageUpload(file: File): void {
@@ -496,6 +501,14 @@ class StudyTrackerApp {
     if (module) {
       this.currentModule = module;
       this.isDetailView = true;
+      if (!module.workspace) {
+        module.workspace = {
+          items: [],
+          offsetX: 0,
+          offsetY: 0,
+          zoom: 1,
+        };
+      }
       this.render();
     }
   }
@@ -583,6 +596,316 @@ class StudyTrackerApp {
     const allCards = document.querySelectorAll('.module-card');
     allCards.forEach((c) => c.classList.remove('drag-over'));
     this.draggedModule = null;
+  }
+
+  // ===== WORKSPACE METHODS =====
+
+  private initializeWorkspace(): void {
+    const canvas = document.getElementById('workspaceCanvas') as HTMLCanvasElement;
+    if (!canvas) return;
+
+    this.workspaceCanvas = canvas;
+    this.workspaceCtx = canvas.getContext('2d');
+
+    // Set canvas size
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+
+    // Draw initial state
+    this.drawWorkspace();
+
+    // Tool button handlers
+    const toolButtons = canvas.parentElement?.querySelectorAll('.tool-btn');
+    if (toolButtons) {
+      toolButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          toolButtons.forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          const toolId = (btn as HTMLElement).id;
+          this.selectTool(toolId);
+        });
+      });
+    }
+
+    // Color picker
+    const drawColorInput = canvas.parentElement?.querySelector('#drawColor') as HTMLInputElement;
+    if (drawColorInput) {
+      drawColorInput.addEventListener('change', (e) => {
+        this.drawColor = (e.target as HTMLInputElement).value;
+      });
+    }
+
+    // Zoom buttons
+    const zoomInBtn = canvas.parentElement?.querySelector('#zoomIn');
+    const zoomOutBtn = canvas.parentElement?.querySelector('#zoomOut');
+    if (zoomInBtn) zoomInBtn.addEventListener('click', () => this.zoom(0.2));
+    if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => this.zoom(-0.2));
+
+    // Canvas events
+    canvas.addEventListener('mousedown', (e) => this.handleCanvasMouseDown(e));
+    canvas.addEventListener('mousemove', (e) => this.handleCanvasMouseMove(e));
+    canvas.addEventListener('mouseup', () => this.handleCanvasMouseUp());
+    canvas.addEventListener('mousewheel', (e) => this.handleCanvasWheel(e as any), { passive: false });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Set default tool
+    const pointerBtn = canvas.parentElement?.querySelector('#toolPointer');
+    if (pointerBtn) {
+      pointerBtn.classList.add('active');
+      this.workspaceTool = 'pointer';
+    }
+  }
+
+  private drawWorkspace(): void {
+    if (!this.workspaceCanvas || !this.workspaceCtx || !this.currentModule?.workspace) return;
+
+    const ctx = this.workspaceCtx;
+    const ws = this.currentModule.workspace;
+    const w = this.workspaceCanvas.width;
+    const h = this.workspaceCanvas.height;
+
+    // Clear with dark background
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw pegboard grid
+    const gridSize = 30;
+    ctx.strokeStyle = 'rgba(0, 212, 255, 0.15)';
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x < w; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let y = 0; y < h; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // Draw pegboard holes
+    ctx.fillStyle = 'rgba(0, 212, 255, 0.1)';
+    for (let x = gridSize / 2; x < w; x += gridSize) {
+      for (let y = gridSize / 2; y < h; y += gridSize) {
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Draw workspace items
+    ws.items.forEach((item) => {
+      this.drawWorkspaceItem(ctx, item, ws);
+    });
+
+    // Draw zoom level
+    const zoomLevel = document.getElementById('zoomLevel');
+    if (zoomLevel) {
+      zoomLevel.textContent = `${Math.round(ws.zoom * 100)}%`;
+    }
+  }
+
+  private drawWorkspaceItem(ctx: CanvasRenderingContext2D, item: WorkspaceItem, ws: WorkspaceData): void {
+    const x = item.x + ws.offsetX;
+    const y = item.y + ws.offsetY;
+    const w = item.width;
+    const h = item.height;
+    const scale = ws.zoom;
+
+    ctx.save();
+    ctx.translate(x * scale, y * scale);
+    ctx.scale(scale, scale);
+
+    switch (item.type) {
+      case 'note':
+        // Draw sticky note
+        ctx.fillStyle = item.color || '#ffeb3b';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(0, 0, w, h);
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.font = '12px Arial';
+        ctx.fillText(item.content || '', 10, 20);
+        break;
+
+      case 'drawing':
+        // Draw strokes
+        item.strokes?.forEach((stroke) => {
+          ctx.strokeStyle = stroke.color;
+          ctx.lineWidth = stroke.width;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          stroke.points.forEach((point, idx) => {
+            if (idx === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+          });
+          ctx.stroke();
+        });
+        break;
+
+      case 'image':
+        if (item.content) {
+          const img = new Image();
+          img.src = item.content;
+          ctx.drawImage(img, 0, 0, w, h);
+        }
+        break;
+    }
+
+    ctx.restore();
+  }
+
+  private handleCanvasMouseDown(e: MouseEvent): void {
+    const canvas = e.target as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / (this.currentModule?.workspace?.zoom || 1);
+    const y = (e.clientY - rect.top) / (this.currentModule?.workspace?.zoom || 1);
+
+    // Right-click for panning
+    if (e.button === 2) {
+      this.isPanning = true;
+      this.lastPanX = x;
+      this.lastPanY = y;
+      return;
+    }
+
+    this.isDrawing = true;
+
+    switch (this.workspaceTool) {
+      case 'draw':
+      case 'erase':
+        this.startDrawing(x, y);
+        break;
+      case 'note':
+        this.addNote(x, y);
+        break;
+      case 'image':
+        this.triggerImageUpload();
+        break;
+    }
+  }
+
+  private handleCanvasMouseMove(e: MouseEvent): void {
+    if (!this.isDrawing || !this.workspaceCanvas || this.workspaceTool !== 'draw' || !this.currentModule?.workspace)
+      return;
+
+    const canvas = this.workspaceCanvas;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / this.currentModule.workspace.zoom;
+    const y = (e.clientY - rect.top) / this.currentModule.workspace.zoom;
+
+    if (this.isPanning && this.currentModule.workspace) {
+      const dx = x - this.lastPanX;
+      const dy = y - this.lastPanY;
+      this.currentModule.workspace.offsetX += dx;
+      this.currentModule.workspace.offsetY += dy;
+      this.lastPanX = x;
+      this.lastPanY = y;
+      this.drawWorkspace();
+      return;
+    }
+
+    this.continueDrawing(x, y);
+  }
+
+  private handleCanvasMouseUp(): void {
+    this.isDrawing = false;
+    this.isPanning = false;
+  }
+
+  private handleCanvasWheel(e: WheelEvent): void {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      this.zoom(0.1);
+    } else {
+      this.zoom(-0.1);
+    }
+  }
+
+  private zoom(delta: number): void {
+    if (!this.currentModule?.workspace) return;
+    const ws = this.currentModule.workspace;
+    ws.zoom = Math.max(0.1, Math.min(3, ws.zoom + delta));
+    this.drawWorkspace();
+  }
+
+  private selectTool(toolId: string): void {
+    const toolMap: { [key: string]: 'pointer' | 'note' | 'draw' | 'erase' | 'image' } = {
+      toolPointer: 'pointer',
+      toolNote: 'note',
+      toolDraw: 'draw',
+      toolErase: 'erase',
+      toolImage: 'image',
+    };
+    this.workspaceTool = toolMap[toolId] || 'pointer';
+    if (this.workspaceCanvas) {
+      this.workspaceCanvas.classList.toggle('pan-cursor', this.workspaceTool === 'pointer');
+      this.workspaceCanvas.classList.toggle('eraser-cursor', this.workspaceTool === 'erase');
+    }
+  }
+
+  private startDrawing(x: number, y: number): void {
+    if (!this.currentModule?.workspace) return;
+    const ws = this.currentModule.workspace;
+    const stroke: DrawingStroke = {
+      points: [{ x, y }],
+      color: this.workspaceTool === 'erase' ? '#0a0a0a' : this.drawColor,
+      width: this.workspaceTool === 'erase' ? 20 : this.drawWidth,
+    };
+
+    let drawingItem = ws.items.find((item) => item.type === 'drawing' && item.zIndex === ws.items.length - 1);
+    if (!drawingItem) {
+      drawingItem = {
+        id: Math.random().toString(36),
+        type: 'drawing',
+        x: 0,
+        y: 0,
+        width: this.workspaceCanvas?.width || 400,
+        height: this.workspaceCanvas?.height || 300,
+        strokes: [],
+        zIndex: ws.items.length,
+      };
+      ws.items.push(drawingItem);
+    }
+    drawingItem.strokes?.push(stroke);
+  }
+
+  private continueDrawing(x: number, y: number): void {
+    if (!this.currentModule?.workspace) return;
+    const ws = this.currentModule.workspace;
+    const drawingItem = ws.items[ws.items.length - 1];
+    if (drawingItem?.strokes?.length) {
+      drawingItem.strokes[drawingItem.strokes.length - 1].points.push({ x, y });
+      this.drawWorkspace();
+    }
+  }
+
+  private addNote(x: number, y: number): void {
+    if (!this.currentModule?.workspace) return;
+    const ws = this.currentModule.workspace;
+    const note: WorkspaceItem = {
+      id: Math.random().toString(36),
+      type: 'note',
+      x,
+      y,
+      width: 150,
+      height: 150,
+      content: 'New note',
+      color: '#ffeb3b',
+      zIndex: ws.items.length,
+    };
+    ws.items.push(note);
+    this.drawWorkspace();
+  }
+
+  private triggerImageUpload(): void {
+    // TODO: Implement image upload for workspace
+    console.log('Image upload for workspace - to be implemented');
   }
 }
 
