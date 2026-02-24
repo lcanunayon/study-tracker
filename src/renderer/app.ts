@@ -4,6 +4,33 @@ interface Module {
   description: string;
   image?: string; // Base64 or image path
   createdAt: number;
+  workspace?: WorkspaceData;
+}
+
+interface WorkspaceItem {
+  id: string;
+  type: 'note' | 'image' | 'drawing';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  content?: string; // For notes and images
+  color?: string; // For notes
+  strokes?: DrawingStroke[]; // For drawings
+  zIndex: number;
+}
+
+interface DrawingStroke {
+  points: { x: number; y: number }[];
+  color: string;
+  width: number;
+}
+
+interface WorkspaceData {
+  items: WorkspaceItem[];
+  offsetX: number;
+  offsetY: number;
+  zoom: number;
 }
 
 class StudyTrackerApp {
@@ -13,6 +40,17 @@ class StudyTrackerApp {
   private isEditMode = false;
   private draggedModule: Module | null = null;
   private storageKey = 'study-tracker-modules';
+
+  // Workspace properties
+  private workspaceCanvas: HTMLCanvasElement | null = null;
+  private workspaceCtx: CanvasRenderingContext2D | null = null;
+  private isDrawing = false;
+  private isPanning = false;
+  private lastPanX = 0;
+  private lastPanY = 0;
+  private workspaceTool: 'pointer' | 'note' | 'draw' | 'erase' | 'image' = 'pointer';
+  private drawColor = '#000000';
+  private drawWidth = 2;
 
   constructor() {
     this.loadModules();
@@ -193,17 +231,34 @@ class StudyTrackerApp {
 
     return `
       <div class="detail-view">
-        <div class="detail-header">
-          <button class="back-btn" id="backBtn">←</button>
-          <h2>${this.escapeHtml(this.currentModule.name)}</h2>
+        <div class="detail-left">
+          <div class="detail-header">
+            <button class="back-btn" id="backBtn">←</button>
+            <h2>${this.escapeHtml(this.currentModule.name)}</h2>
+          </div>
+          <div class="detail-content">
+            ${
+              hasImage
+                ? `<img class="detail-image" src="${this.currentModule.image}" alt="${this.currentModule.name}">`
+                : ''
+            }
+            <div class="detail-description">${this.escapeHtml(this.currentModule.description)}</div>
+          </div>
         </div>
-        <div class="detail-content">
-          ${
-            hasImage
-              ? `<img class="detail-image" src="${this.currentModule.image}" alt="${this.currentModule.name}">`
-              : ''
-          }
-          <div class="detail-description">${this.escapeHtml(this.currentModule.description)}</div>
+        <div class="workspace-container">
+          <div class="workspace-toolbar">
+            <button class="tool-btn" id="toolPointer" title="Select">➡</button>
+            <button class="tool-btn" id="toolNote" title="Add Note">📝</button>
+            <button class="tool-btn" id="toolDraw" title="Draw">✏</button>
+            <button class="tool-btn" id="toolErase" title="Erase">🧹</button>
+            <button class="tool-btn" id="toolImage" title="Add Image">🖼</button>
+            <input type="color" id="drawColor" value="#000000" title="Draw Color">
+            <div style="flex: 1;"></div>
+            <button class="tool-btn" id="zoomIn" title="Zoom In">🔍+</button>
+            <button class="tool-btn" id="zoomOut" title="Zoom Out">🔍-</button>
+            <span id="zoomLevel" style="color: #00d4ff; font-size: 12px; margin: 0 10px;">100%</span>
+          </div>
+          <canvas id="workspaceCanvas" class="workspace-canvas"></canvas>
         </div>
       </div>
     `;
@@ -226,7 +281,8 @@ class StudyTrackerApp {
     if (!this.isEditMode) {
       const moduleCards = document.querySelectorAll('.module-card');
       moduleCards.forEach((card) => {
-        card.addEventListener('click', () => {
+        card.addEventListener('click', (e) => {
+          if ((e.target as HTMLElement).closest('.delete-btn')) return; // Don't open detail view if clicking delete
           const moduleId = (card as HTMLElement).dataset.moduleId;
           this.openDetailView(moduleId!);
         });
@@ -257,80 +313,41 @@ class StudyTrackerApp {
     if (backBtn) {
       backBtn.addEventListener('click', () => this.closeDetailView());
     }
-
-    // Modal events
-    const modalOverlay = document.getElementById('modalOverlay');
-    const cancelBtn = document.getElementById('cancelBtn');
-    const addModuleForm = document.getElementById('addModuleForm') as HTMLFormElement;
-    const imageUploadArea = document.getElementById('imageUploadArea');
-    const imageInput = document.getElementById('imageInput') as HTMLInputElement;
-    const imagePreview = document.getElementById('imagePreview') as HTMLImageElement;
-
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', () => this.closeAddModuleModal());
-    }
-
-    if (modalOverlay) {
-      modalOverlay.addEventListener('click', (e) => {
-        if (e.target === modalOverlay) {
-          this.closeAddModuleModal();
-        }
-      });
-    }
-
-    if (imageUploadArea) {
-      imageUploadArea.addEventListener('click', () => imageInput?.click());
-      imageUploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        imageUploadArea.style.background = 'rgba(0, 212, 255, 0.1)';
-      });
-      imageUploadArea.addEventListener('dragleave', () => {
-        imageUploadArea.style.background = 'rgba(0, 212, 255, 0.02)';
-      });
-      imageUploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        imageUploadArea.style.background = 'rgba(0, 212, 255, 0.02)';
-        const files = e.dataTransfer?.files;
-        if (files) this.handleImageUpload(files[0], imagePreview);
-      });
-    }
-
-    if (imageInput) {
-      imageInput.addEventListener('change', (e) => {
-        const files = (e.target as HTMLInputElement).files;
-        if (files) this.handleImageUpload(files[0], imagePreview);
-      });
-    }
-
-    if (addModuleForm) {
-      addModuleForm.addEventListener('submit', (e) => this.handleAddModule(e, imagePreview));
-    }
   }
 
-  private handleImageUpload(file: File, previewElement: HTMLImageElement): void {
+  private handleImageUpload(file: File): void {
+    const preview = document.getElementById('imagePreview') as HTMLImageElement;
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
-      previewElement.src = result;
-      previewElement.style.display = 'block';
-      // Store the base64 in a data attribute
-      (previewElement.parentElement as HTMLElement).dataset.imageData = result;
+      if (preview) {
+        preview.src = result;
+        preview.style.display = 'block';
+        (preview.parentElement as HTMLElement).dataset.imageData = result;
+      }
     };
     reader.readAsDataURL(file);
   }
 
-  private handleAddModule(e: Event, imagePreview: HTMLImageElement): void {
-    e.preventDefault();
-
+  private handleAddModule(): void {
     const nameInput = document.getElementById('moduleName') as HTMLInputElement;
     const descriptionInput = document.getElementById('moduleDescription') as HTMLTextAreaElement;
+    const imagePreview = document.getElementById('imagePreview') as HTMLImageElement;
+
+    if (!nameInput || !descriptionInput) return;
 
     const module: Module = {
       id: Date.now().toString(),
       name: nameInput.value.trim(),
       description: descriptionInput.value.trim(),
-      image: imagePreview.style.display !== 'none' ? imagePreview.src : undefined,
+      image: imagePreview && imagePreview.style.display !== 'none' ? imagePreview.src : undefined,
       createdAt: Date.now(),
+      workspace: {
+        items: [],
+        offsetX: 0,
+        offsetY: 0,
+        zoom: 1,
+      },
     };
 
     this.modules.push(module);
@@ -344,33 +361,132 @@ class StudyTrackerApp {
     const imagePreview = document.getElementById('imagePreview') as HTMLImageElement;
     const imageInput = document.getElementById('imageInput') as HTMLInputElement;
 
+    console.log('=== OPEN MODAL ===');
+    console.log('Modal overlay found:', !!modalOverlay);
+
     if (modalOverlay) {
+      // Clone modal to remove old listeners
+      const newOverlay = modalOverlay.cloneNode(true) as HTMLElement;
+      modalOverlay.parentNode?.replaceChild(newOverlay, modalOverlay);
+      
+      // Get fresh reference to cloned modal
+      const freshModal = document.getElementById('modalOverlay') as HTMLElement;
+      if (!freshModal) return;
+      
+      // Set up fresh event listeners on the cloned modal
+      this.setupModalListeners(freshModal);
+      
       // Reset form
-      if (imagePreview) {
-        imagePreview.style.display = 'none';
-        imagePreview.src = '';
+      const freshImagePreview = freshModal.querySelector('#imagePreview') as HTMLImageElement;
+      const freshImageInput = freshModal.querySelector('#imageInput') as HTMLInputElement;
+      const freshForm = freshModal.querySelector('#addModuleForm') as HTMLFormElement;
+      
+      if (freshImagePreview) {
+        freshImagePreview.style.display = 'none';
+        freshImagePreview.src = '';
       }
-      if (imageInput) imageInput.value = '';
-      const form = document.getElementById('addModuleForm') as HTMLFormElement;
-      if (form) form.reset();
+      if (freshImageInput) freshImageInput.value = '';
+      if (freshForm) freshForm.reset();
       
       // Show with opacity transition
-      modalOverlay.style.opacity = '0';
-      modalOverlay.style.pointerEvents = 'auto';
-      modalOverlay.style.display = 'flex';
+      freshModal.style.opacity = '0';
+      freshModal.style.pointerEvents = 'auto';
+      freshModal.style.display = 'flex';
+      
       // Trigger reflow to start transition
-      void modalOverlay.offsetHeight;
-      modalOverlay.style.opacity = '1';
+      void freshModal.offsetHeight;
+      freshModal.style.opacity = '1';
+      
+      // Focus on the first input with proper timing
+      setTimeout(() => {
+        const moduleNameInput = freshModal.querySelector('#moduleName') as HTMLInputElement;
+        if (moduleNameInput) {
+          console.log('🎯 Focusing input field');
+          moduleNameInput.focus();
+        }
+      }, 10);
+    }
+  }
+
+  private setupModalListeners(modalOverlay: HTMLElement): void {
+    console.log('=== SETUP MODAL LISTENERS ===');
+    
+    // Form submission
+    modalOverlay.addEventListener('submit', (e) => {
+      if ((e.target as HTMLElement).matches('#addModuleForm')) {
+        e.preventDefault();
+        console.log('Form submitted');
+        this.handleAddModule();
+      }
+    }, true); // Capture phase
+    
+    // Cancel button
+    modalOverlay.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.matches('#cancelBtn')) {
+        console.log('Cancel clicked');
+        this.closeAddModuleModal();
+      }
+    });
+    
+    // Background click to close
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) {
+        this.closeAddModuleModal();
+      }
+    });
+    
+    // Image upload click
+    modalOverlay.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.matches('#imageUploadArea') || target.closest('#imageUploadArea')) {
+        const input = modalOverlay.querySelector('#imageInput') as HTMLInputElement;
+        if (input) input.click();
+      }
+    });
+    
+    // Image upload drag/drop
+    const uploadArea = modalOverlay.querySelector('#imageUploadArea');
+    if (uploadArea) {
+      uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        (uploadArea as HTMLElement).style.background = 'rgba(0, 212, 255, 0.1)';
+      });
+      
+      uploadArea.addEventListener('dragleave', () => {
+        (uploadArea as HTMLElement).style.background = 'rgba(0, 212, 255, 0.02)';
+      });
+      
+      uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        (uploadArea as HTMLElement).style.background = 'rgba(0, 212, 255, 0.02)';
+        const files = (e as DragEvent).dataTransfer?.files;
+        if (files) this.handleImageUpload(files[0]);
+      });
+    }
+    
+    // Image input change
+    const imageInput = modalOverlay.querySelector('#imageInput') as HTMLInputElement;
+    if (imageInput) {
+      imageInput.addEventListener('change', (e) => {
+        const files = (e.target as HTMLInputElement).files;
+        if (files) this.handleImageUpload(files[0]);
+      });
     }
   }
 
   private closeAddModuleModal(): void {
+    console.log('=== CLOSE MODAL ===');
     const modalOverlay = document.getElementById('modalOverlay');
     if (modalOverlay) {
       modalOverlay.style.opacity = '0';
       modalOverlay.style.pointerEvents = 'none';
+      console.log('Modal pointerEvents set to: none');
       setTimeout(() => {
-        if (modalOverlay) modalOverlay.style.display = 'none';
+        if (modalOverlay) {
+          modalOverlay.style.display = 'none';
+          console.log('Modal display set to: none');
+        }
       }, 300);
     }
   }
@@ -402,10 +518,14 @@ class StudyTrackerApp {
   }
 
   private deleteModule(moduleId: string): void {
+    console.log('=== DELETE MODULE ===');
+    console.log('Module ID:', moduleId);
     if (confirm('Are you sure you want to delete this module?')) {
       this.modules = this.modules.filter((m) => m.id !== moduleId);
       this.saveModules();
+      console.log('Module deleted, remaining:', this.modules.length);
       this.render();
+      console.log('Render complete after delete');
     }
   }
 
