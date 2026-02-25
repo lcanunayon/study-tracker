@@ -16,7 +16,6 @@ interface WorkspaceItem {
   height: number;
   content?: string; // For notes and images
   color?: string; // For notes
-  rotation?: number; // For images
   strokes?: DrawingStroke[]; // For drawings
   zIndex: number;
 }
@@ -52,12 +51,6 @@ class StudyTrackerApp {
   private workspaceTool: 'pointer' | 'note' | 'draw' | 'erase' | 'image' = 'pointer';
   private drawColor = '#000000';
   private drawWidth = 2;
-  private selectedItem: WorkspaceItem | null = null;
-  private selectedItemOffsetX = 0;
-  private selectedItemOffsetY = 0;
-  private resizingItem: WorkspaceItem | null = null;
-  private fullScreenImage: WorkspaceItem | null = null;
-  private editingNoteId: string | null = null;
 
   constructor() {
     this.loadModules();
@@ -99,19 +92,6 @@ class StudyTrackerApp {
                 <button type="submit" class="btn btn-primary">Create Module</button>
               </div>
             </form>
-          </div>
-        </div>
-        <div class="lightbox" id="imageLightbox" style="display: none;">
-          <div class="lightbox-content">
-            <button class="lightbox-close" id="closeLightbox">✕</button>
-            <img class="lightbox-image" id="lightboxImage">
-            <div class="lightbox-controls">
-              <button id="lightboxZoomIn">🔍+</button>
-              <button id="lightboxZoomOut">🔍-</button>
-              <span id="lightboxZoomLevel">100%</span>
-              <button id="lightboxRotateLeft">↺</button>
-              <button id="lightboxRotateRight">↻</button>
-            </div>
           </div>
         </div>
       `;
@@ -728,44 +708,69 @@ class StudyTrackerApp {
     }
   }
 
+  private drawWorkspaceItem(ctx: CanvasRenderingContext2D, item: WorkspaceItem, ws: WorkspaceData): void {
+    const x = item.x + ws.offsetX;
+    const y = item.y + ws.offsetY;
+    const w = item.width;
+    const h = item.height;
+    const scale = ws.zoom;
+
+    ctx.save();
+    ctx.translate(x * scale, y * scale);
+    ctx.scale(scale, scale);
+
+    switch (item.type) {
+      case 'note':
+        // Draw sticky note
+        ctx.fillStyle = item.color || '#ffeb3b';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(0, 0, w, h);
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.font = '12px Arial';
+        ctx.fillText(item.content || '', 10, 20);
+        break;
+
+      case 'drawing':
+        // Draw strokes
+        item.strokes?.forEach((stroke) => {
+          ctx.strokeStyle = stroke.color;
+          ctx.lineWidth = stroke.width;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          stroke.points.forEach((point, idx) => {
+            if (idx === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+          });
+          ctx.stroke();
+        });
+        break;
+
+      case 'image':
+        if (item.content) {
+          const img = new Image();
+          img.src = item.content;
+          ctx.drawImage(img, 0, 0, w, h);
+        }
+        break;
+    }
+
+    ctx.restore();
+  }
+
   private handleCanvasMouseDown(e: MouseEvent): void {
     const canvas = e.target as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / (this.currentModule?.workspace?.zoom || 1);
     const y = (e.clientY - rect.top) / (this.currentModule?.workspace?.zoom || 1);
-    const ws = this.currentModule?.workspace;
 
     // Right-click for panning
     if (e.button === 2) {
       this.isPanning = true;
       this.lastPanX = x;
       this.lastPanY = y;
-      return;
-    }
-
-    // Pointer tool: select/move items
-    if (this.workspaceTool === 'pointer') {
-      const itemAtPos = this.getItemAtPosition(x, y, ws);
-      if (itemAtPos) {
-        this.selectedItem = itemAtPos;
-        if (itemAtPos.type === 'image') {
-          // Double-click to open full-screen
-          if (e.detail === 2) {
-            this.openImageLightbox(itemAtPos);
-            return;
-          }
-        } else if (itemAtPos.type === 'note') {
-          // Single click to edit note
-          this.startEditingNote(itemAtPos);
-          return;
-        }
-        this.selectedItemOffsetX = x - itemAtPos.x;
-        this.selectedItemOffsetY = y - itemAtPos.y;
-        this.isDrawing = true;
-      } else {
-        this.selectedItem = null;
-      }
-      this.drawWorkspace();
       return;
     }
 
@@ -786,38 +791,26 @@ class StudyTrackerApp {
   }
 
   private handleCanvasMouseMove(e: MouseEvent): void {
-    if (!this.workspaceCanvas || !this.currentModule?.workspace) return;
+    if (!this.isDrawing || !this.workspaceCanvas || this.workspaceTool !== 'draw' || !this.currentModule?.workspace)
+      return;
 
     const canvas = this.workspaceCanvas;
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / this.currentModule.workspace.zoom;
     const y = (e.clientY - rect.top) / this.currentModule.workspace.zoom;
-    const ws = this.currentModule.workspace;
 
-    // Panning
-    if (this.isPanning) {
+    if (this.isPanning && this.currentModule.workspace) {
       const dx = x - this.lastPanX;
       const dy = y - this.lastPanY;
-      ws.offsetX += dx;
-      ws.offsetY += dy;
+      this.currentModule.workspace.offsetX += dx;
+      this.currentModule.workspace.offsetY += dy;
       this.lastPanX = x;
       this.lastPanY = y;
       this.drawWorkspace();
       return;
     }
 
-    // Move selected item with pointer tool
-    if (this.isDrawing && this.workspaceTool === 'pointer' && this.selectedItem) {
-      this.selectedItem.x = x - this.selectedItemOffsetX;
-      this.selectedItem.y = y - this.selectedItemOffsetY;
-      this.drawWorkspace();
-      return;
-    }
-
-    // Drawing
-    if (this.isDrawing && (this.workspaceTool === 'draw' || this.workspaceTool === 'erase')) {
-      this.continueDrawing(x, y);
-    }
+    this.continueDrawing(x, y);
   }
 
   private handleCanvasMouseUp(): void {
@@ -861,16 +854,11 @@ class StudyTrackerApp {
     const ws = this.currentModule.workspace;
     const stroke: DrawingStroke = {
       points: [{ x, y }],
-      color: this.drawColor,
-      width: this.workspaceTool === 'erase' ? 15 : this.drawWidth,
+      color: this.workspaceTool === 'erase' ? '#0a0a0a' : this.drawColor,
+      width: this.workspaceTool === 'erase' ? 20 : this.drawWidth,
     };
 
-    // Mark as eraser stroke if using erase tool
-    if (this.workspaceTool === 'erase') {
-      (stroke as any).isEraser = true;
-    }
-
-    let drawingItem = ws.items.find((item) => item.type === 'drawing');
+    let drawingItem = ws.items.find((item) => item.type === 'drawing' && item.zIndex === ws.items.length - 1);
     if (!drawingItem) {
       drawingItem = {
         id: Math.random().toString(36),
@@ -916,205 +904,8 @@ class StudyTrackerApp {
   }
 
   private triggerImageUpload(): void {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-          const dataURL = evt.target?.result as string;
-          this.addImageToWorkspace(dataURL);
-        };
-        reader.readAsDataURL(file);
-      }
-    };
-    input.click();
-  }
-
-  private addImageToWorkspace(dataURL: string): void {
-    if (!this.currentModule?.workspace) return;
-    const ws = this.currentModule.workspace;
-    const imageItem: WorkspaceItem = {
-      id: Math.random().toString(36),
-      type: 'image',
-      x: 100,
-      y: 100,
-      width: 200,
-      height: 200,
-      content: dataURL,
-      rotation: 0,
-      zIndex: ws.items.length,
-    };
-    ws.items.push(imageItem);
-    this.saveModules();
-    this.drawWorkspace();
-  }
-
-  private drawWorkspaceItem(ctx: CanvasRenderingContext2D, item: WorkspaceItem, ws: WorkspaceData): void {
-    const x = item.x + ws.offsetX;
-    const y = item.y + ws.offsetY;
-    const w = item.width;
-    const h = item.height;
-    const scale = ws.zoom;
-
-    ctx.save();
-    ctx.translate((x + w / 2) * scale, (y + h / 2) * scale);
-    
-    if (item.rotation) {
-      ctx.rotate((item.rotation * Math.PI) / 180);
-    }
-    
-    ctx.translate((-w / 2) * scale, (-h / 2) * scale);
-    ctx.scale(scale, scale);
-
-    // Draw selection highlight
-    if (this.selectedItem?.id === item.id) {
-      ctx.strokeStyle = '#00d4ff';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(0, 0, w, h);
-      // Draw resize handles
-      ctx.fillStyle = '#00d4ff';
-      const handleSize = 8;
-      ctx.fillRect(w - handleSize, h - handleSize, handleSize, handleSize);
-    }
-
-    switch (item.type) {
-      case 'note':
-        // Draw sticky note
-        ctx.fillStyle = item.color || '#ffeb3b';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-        ctx.shadowBlur = 8;
-        ctx.fillRect(0, 0, w, h);
-        ctx.shadowColor = 'transparent';
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.font = '12px Arial';
-        ctx.fillText(item.content || '', 10, 20);
-        break;
-
-      case 'drawing':
-        // Draw strokes
-        item.strokes?.forEach((stroke) => {
-          // Handle eraser strokes
-          if ((stroke as any).isEraser) {
-            ctx.clearRect(0, 0, w, h); // Clear the drawing for erased areas
-            ctx.globalCompositeOperation = 'lighter'; // Blend mode for transparency
-            ctx.strokeStyle = 'rgba(0,0,0,0)';
-            ctx.globalCompositeOperation = 'source-over';
-          } else {
-            ctx.strokeStyle = stroke.color;
-            ctx.globalCompositeOperation = 'source-over';
-          }
-          ctx.lineWidth = stroke.width;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.beginPath();
-          stroke.points.forEach((point, idx) => {
-            if (idx === 0) ctx.moveTo(point.x, point.y);
-            else ctx.lineTo(point.x, point.y);
-          });
-          ctx.stroke();
-        });
-        ctx.globalCompositeOperation = 'source-over'; // Reset
-        break;
-
-      case 'image':
-        if (item.content) {
-          const img = new Image();
-          img.src = item.content;
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0, w, h);
-          };
-        }
-        break;
-    }
-
-    ctx.restore();
-  }
-  private getItemAtPosition(x: number, y: number, ws?: WorkspaceData): WorkspaceItem | null {
-    if (!ws) return null;
-    // Check items in reverse order (top to bottom)
-    for (let i = ws.items.length - 1; i >= 0; i--) {
-      const item = ws.items[i];
-      if (
-        x >= item.x &&
-        x <= item.x + item.width &&
-        y >= item.y &&
-        y <= item.y + item.height
-      ) {
-        return item;
-      }
-    }
-    return null;
-  }
-
-  private openImageLightbox(item: WorkspaceItem): void {
-    if (item.type !== 'image' || !item.content) return;
-    this.fullScreenImage = item;
-    const lightbox = document.getElementById('imageLightbox');
-    const img = document.getElementById('lightboxImage') as HTMLImageElement;
-    if (lightbox && img) {
-      img.src = item.content;
-      lightbox.classList.add('show');
-      this.setupLightboxControls();
-    }
-  }
-
-  private closeLightbox(): void {
-    const lightbox = document.getElementById('imageLightbox');
-    if (lightbox) {
-      lightbox.classList.remove('show');
-    }
-    this.fullScreenImage = null;
-  }
-
-  private setupLightboxControls(): void {
-    const closeBtn = document.getElementById('closeLightbox');
-    const zoomInBtn = document.getElementById('lightboxZoomIn');
-    const zoomOutBtn = document.getElementById('lightboxZoomOut');
-    const rotateLeftBtn = document.getElementById('lightboxRotateLeft');
-    const rotateRightBtn = document.getElementById('lightboxRotateRight');
-
-    if (closeBtn) closeBtn.onclick = () => this.closeLightbox();
-    if (zoomInBtn) zoomInBtn.onclick = () => this.lightboxZoom(0.1);
-    if (zoomOutBtn) zoomOutBtn.onclick = () => this.lightboxZoom(-0.1);
-    if (rotateLeftBtn) rotateLeftBtn.onclick = () => this.lightboxRotate(-15);
-    if (rotateRightBtn) rotateRightBtn.onclick = () => this.lightboxRotate(15);
-  }
-
-  private lightboxZoom(delta: number): void {
-    if (!this.fullScreenImage) return;
-    const img = document.getElementById('lightboxImage') as HTMLImageElement;
-    const zoomLevel = document.getElementById('lightboxZoomLevel');
-    if (!img.style.scale) img.style.scale = '1';
-    const currentScale = parseFloat(img.style.scale) || 1;
-    const newScale = Math.max(0.1, Math.min(3, currentScale + delta));
-    img.style.scale = newScale.toString();
-    if (zoomLevel) zoomLevel.textContent = `${Math.round(newScale * 100)}%`;
-  }
-
-  private lightboxRotate(delta: number): void {
-    const img = document.getElementById('lightboxImage') as HTMLImageElement;
-    if (!img.style.rotate) img.style.rotate = '0deg';
-    const currentRotation = parseFloat(img.style.rotate) || 0;
-    const newRotation = (currentRotation + delta) % 360;
-    img.style.rotate = newRotation + 'deg';
-    if (this.fullScreenImage) {
-      this.fullScreenImage.rotation = newRotation;
-    }
-  }
-
-  private startEditingNote(item: WorkspaceItem): void {
-    if (item.type !== 'note') return;
-    this.editingNoteId = item.id;
-    const newText = prompt('Edit note:', item.content || '');
-    if (newText !== null) {
-      item.content = newText;
-      this.saveModules();
-      this.drawWorkspace();
-    }
-    this.editingNoteId = null;
+    // TODO: Implement image upload for workspace
+    console.log('Image upload for workspace - to be implemented');
   }
 }
 
