@@ -61,6 +61,8 @@ class StudyTrackerApp {
   private resizingItem: WorkspaceItem | null = null;
   private fullScreenImage: WorkspaceItem | null = null;
   private editingNoteId: string | null = null;
+  private imageCache: Map<string, HTMLImageElement> = new Map();
+  private currentStroke: DrawingStroke | null = null;
 
   constructor() {
     this.loadModules();
@@ -829,9 +831,13 @@ class StudyTrackerApp {
       }
     }
 
-    // Draw workspace items
+    // Draw workspace items (drawing layers rendered separately to isolate the eraser)
     ws.items.forEach((item) => {
-      this.drawWorkspaceItem(ctx, item, ws);
+      if (item.type === 'drawing') {
+        this.renderDrawingLayer(ctx, item, ws);
+      } else {
+        this.drawWorkspaceItem(ctx, item, ws);
+      }
     });
 
     // Draw zoom level
@@ -839,6 +845,41 @@ class StudyTrackerApp {
     if (zoomLevel) {
       zoomLevel.textContent = `${Math.round(ws.zoom * 100)}%`;
     }
+  }
+
+  // Render all drawing strokes onto an offscreen canvas so the eraser (destination-out)
+  // only removes pixels from the drawing layer — never from the background.
+  private renderDrawingLayer(ctx: CanvasRenderingContext2D, item: WorkspaceItem, ws: WorkspaceData): void {
+    if (!this.workspaceCanvas || !item.strokes?.length) return;
+
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = this.workspaceCanvas.width;
+    offCanvas.height = this.workspaceCanvas.height;
+    const offCtx = offCanvas.getContext('2d')!;
+
+    item.strokes.forEach((stroke) => {
+      if ((stroke as any).isEraser) {
+        offCtx.globalCompositeOperation = 'destination-out';
+        offCtx.strokeStyle = 'rgba(0,0,0,1)';
+      } else {
+        offCtx.globalCompositeOperation = 'source-over';
+        offCtx.strokeStyle = stroke.color;
+      }
+      offCtx.lineWidth = stroke.width * ws.zoom;
+      offCtx.lineCap = 'round';
+      offCtx.lineJoin = 'round';
+      offCtx.beginPath();
+      stroke.points.forEach((point, idx) => {
+        // Convert from item-local space to canvas pixels: (local + offset) * zoom
+        const px = (point.x + ws.offsetX) * ws.zoom;
+        const py = (point.y + ws.offsetY) * ws.zoom;
+        if (idx === 0) offCtx.moveTo(px, py);
+        else offCtx.lineTo(px, py);
+      });
+      offCtx.stroke();
+    });
+
+    ctx.drawImage(offCanvas, 0, 0);
   }
 
   private handleCanvasMouseDown(e: MouseEvent): void {
@@ -861,19 +902,18 @@ class StudyTrackerApp {
       const itemAtPos = this.getItemAtPosition(x, y, ws);
       if (itemAtPos) {
         this.selectedItem = itemAtPos;
-        if (itemAtPos.type === 'image') {
-          // Double-click to open full-screen
-          if (e.detail === 2) {
-            this.openImageLightbox(itemAtPos);
-            return;
-          }
-        } else if (itemAtPos.type === 'note') {
-          // Single click to edit note
+        // Double-click: open image lightbox or edit note
+        if (itemAtPos.type === 'image' && e.detail === 2) {
+          this.openImageLightbox(itemAtPos);
+          return;
+        }
+        if (itemAtPos.type === 'note' && e.detail === 2) {
           this.startEditingNote(itemAtPos);
           return;
         }
-        this.selectedItemOffsetX = x - itemAtPos.x;
-        this.selectedItemOffsetY = y - itemAtPos.y;
+        // Single click: select and prepare for drag (offset accounts for workspace pan)
+        this.selectedItemOffsetX = x - (itemAtPos.x + (ws?.offsetX || 0));
+        this.selectedItemOffsetY = y - (itemAtPos.y + (ws?.offsetY || 0));
         this.isDrawing = true;
       } else {
         this.selectedItem = null;
@@ -921,8 +961,8 @@ class StudyTrackerApp {
 
     // Move selected item with pointer tool
     if (this.isDrawing && this.workspaceTool === 'pointer' && this.selectedItem) {
-      this.selectedItem.x = x - this.selectedItemOffsetX;
-      this.selectedItem.y = y - this.selectedItemOffsetY;
+      this.selectedItem.x = x - this.selectedItemOffsetX - (ws?.offsetX || 0);
+      this.selectedItem.y = y - this.selectedItemOffsetY - (ws?.offsetY || 0);
       this.drawWorkspace();
       return;
     }
@@ -936,6 +976,7 @@ class StudyTrackerApp {
   private handleCanvasMouseUp(): void {
     this.isDrawing = false;
     this.isPanning = false;
+    this.currentStroke = null;
     // Save state after drawing/moving/resizing operations
     if (this.currentModule) {
       this.saveModules();
@@ -977,8 +1018,9 @@ class StudyTrackerApp {
   private startDrawing(x: number, y: number): void {
     if (!this.currentModule?.workspace) return;
     const ws = this.currentModule.workspace;
+    // Store in item-local space (subtract offset) so strokes render correctly after panning
     const stroke: DrawingStroke = {
-      points: [{ x, y }],
+      points: [{ x: x - ws.offsetX, y: y - ws.offsetY }],
       color: this.drawColor,
       width: this.workspaceTool === 'erase' ? 15 : this.drawWidth,
     };
@@ -998,21 +1040,21 @@ class StudyTrackerApp {
         width: this.workspaceCanvas?.width || 400,
         height: this.workspaceCanvas?.height || 300,
         strokes: [],
-        zIndex: ws.items.length,
+        zIndex: 0,
       };
-      ws.items.push(drawingItem);
+      // Insert at beginning so drawing layer stays behind notes and images
+      ws.items.unshift(drawingItem);
     }
     drawingItem.strokes?.push(stroke);
+    this.currentStroke = stroke;
   }
 
   private continueDrawing(x: number, y: number): void {
-    if (!this.currentModule?.workspace) return;
+    if (!this.currentStroke || !this.currentModule?.workspace) return;
     const ws = this.currentModule.workspace;
-    const drawingItem = ws.items[ws.items.length - 1];
-    if (drawingItem?.strokes?.length) {
-      drawingItem.strokes[drawingItem.strokes.length - 1].points.push({ x, y });
-      this.drawWorkspace();
-    }
+    // Store in item-local space (subtract offset)
+    this.currentStroke.points.push({ x: x - ws.offsetX, y: y - ws.offsetY });
+    this.drawWorkspace();
   }
 
   private addNote(x: number, y: number): void {
@@ -1021,11 +1063,12 @@ class StudyTrackerApp {
     const note: WorkspaceItem = {
       id: Math.random().toString(36),
       type: 'note',
-      x,
-      y,
+      // Store in item-local space (subtract offset) so notes appear where clicked
+      x: x - ws.offsetX,
+      y: y - ws.offsetY,
       width: 150,
       height: 150,
-      content: 'New note',
+      content: 'Double-click to edit',
       color: '#ffeb3b',
       zIndex: ws.items.length,
     };
@@ -1102,68 +1145,86 @@ class StudyTrackerApp {
     }
 
     switch (item.type) {
-      case 'note':
-        // Draw sticky note
+      case 'note': {
+        // Draw sticky note background
         ctx.fillStyle = item.color || '#ffeb3b';
         ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
         ctx.shadowBlur = 8;
         ctx.fillRect(0, 0, w, h);
         ctx.shadowColor = 'transparent';
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        // Draw note text with word-wrap
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.font = '12px Arial';
-        ctx.fillText(item.content || '', 10, 20);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        const noteLines = this.wrapText(ctx, item.content || '', w - 16);
+        noteLines.forEach((line, i) => {
+          if (8 + i * 16 < h - 8) ctx.fillText(line, 8, 8 + i * 16);
+        });
         break;
+      }
 
       case 'drawing':
-        // Draw strokes
-        item.strokes?.forEach((stroke) => {
-          // Handle eraser strokes
-          if ((stroke as any).isEraser) {
-            ctx.clearRect(0, 0, w, h); // Clear the drawing for erased areas
-            ctx.globalCompositeOperation = 'lighter'; // Blend mode for transparency
-            ctx.strokeStyle = 'rgba(0,0,0,0)';
-            ctx.globalCompositeOperation = 'source-over';
-          } else {
-            ctx.strokeStyle = stroke.color;
-            ctx.globalCompositeOperation = 'source-over';
-          }
-          ctx.lineWidth = stroke.width;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.beginPath();
-          stroke.points.forEach((point, idx) => {
-            if (idx === 0) ctx.moveTo(point.x, point.y);
-            else ctx.lineTo(point.x, point.y);
-          });
-          ctx.stroke();
-        });
-        ctx.globalCompositeOperation = 'source-over'; // Reset
+        // Drawing items are now handled by renderDrawingLayer — skip here
         break;
 
       case 'image':
         if (item.content) {
-          const img = new Image();
-          img.src = item.content;
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0, w, h);
-          };
+          // Use cached image to avoid async onload issues
+          const cached = this.imageCache.get(item.content);
+          if (cached) {
+            ctx.drawImage(cached, 0, 0, w, h);
+          } else {
+            // Load and cache; redraw once loaded
+            const img = new Image();
+            this.imageCache.set(item.content, img);
+            img.onload = () => this.drawWorkspace();
+            img.src = item.content;
+            // Placeholder while loading
+            ctx.fillStyle = 'rgba(80,80,80,0.4)';
+            ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Loading…', w / 2, h / 2);
+          }
         }
         break;
     }
 
     ctx.restore();
   }
+  private wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+    const lines: string[] = [];
+    for (const paragraph of text.split('\n')) {
+      if (!paragraph) { lines.push(''); continue; }
+      const words = paragraph.split(' ');
+      let current = '';
+      for (const word of words) {
+        const test = current ? current + ' ' + word : word;
+        if (ctx.measureText(test).width > maxWidth && current) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = test;
+        }
+      }
+      if (current) lines.push(current);
+    }
+    return lines;
+  }
+
   private getItemAtPosition(x: number, y: number, ws?: WorkspaceData): WorkspaceItem | null {
     if (!ws) return null;
-    // Check items in reverse order (top to bottom)
+    // Check items in reverse order (top to bottom), skip drawing layers
     for (let i = ws.items.length - 1; i >= 0; i--) {
       const item = ws.items[i];
-      if (
-        x >= item.x &&
-        x <= item.x + item.width &&
-        y >= item.y &&
-        y <= item.y + item.height
-      ) {
+      if (item.type === 'drawing') continue; // drawing layers are not individually selectable
+      // Items are rendered at (item.x + offsetX) * zoom, so hit-test in world space using offset
+      const itemX = item.x + ws.offsetX;
+      const itemY = item.y + ws.offsetY;
+      if (x >= itemX && x <= itemX + item.width && y >= itemY && y <= itemY + item.height) {
         return item;
       }
     }
@@ -1227,15 +1288,66 @@ class StudyTrackerApp {
   }
 
   private startEditingNote(item: WorkspaceItem): void {
-    if (item.type !== 'note') return;
+    if (item.type !== 'note' || !this.workspaceCanvas) return;
+    const ws = this.currentModule?.workspace;
+    if (!ws) return;
+
     this.editingNoteId = item.id;
-    const newText = prompt('Edit note:', item.content || '');
-    if (newText !== null) {
-      item.content = newText;
+
+    // Position the textarea exactly over the note on screen
+    const canvasRect = this.workspaceCanvas.getBoundingClientRect();
+    const noteScreenX = (item.x + ws.offsetX) * ws.zoom;
+    const noteScreenY = (item.y + ws.offsetY) * ws.zoom;
+    const noteScreenW = item.width * ws.zoom;
+    const noteScreenH = item.height * ws.zoom;
+
+    const textarea = document.createElement('textarea');
+    textarea.value = item.content || '';
+    textarea.style.cssText = `
+      position: fixed;
+      left: ${canvasRect.left + noteScreenX}px;
+      top: ${canvasRect.top + noteScreenY}px;
+      width: ${noteScreenW}px;
+      height: ${noteScreenH}px;
+      background: ${item.color || '#ffeb3b'};
+      border: 2px solid #00d4ff;
+      padding: 6px 8px;
+      font: 12px Arial, sans-serif;
+      color: rgba(0,0,0,0.85);
+      resize: none;
+      z-index: 10000;
+      box-sizing: border-box;
+      outline: none;
+      border-radius: 2px;
+      overflow: auto;
+    `;
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    const finish = () => {
+      if (!document.body.contains(textarea)) return;
+      item.content = textarea.value;
+      document.body.removeChild(textarea);
+      this.editingNoteId = null;
       this.saveModules();
+      this.pushHistory();
       this.drawWorkspace();
-    }
-    this.editingNoteId = null;
+    };
+
+    textarea.addEventListener('blur', finish);
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (document.body.contains(textarea)) {
+          document.body.removeChild(textarea);
+          this.editingNoteId = null;
+          this.drawWorkspace();
+        }
+      } else if (e.key === 'Enter' && e.ctrlKey) {
+        finish();
+      }
+      e.stopPropagation(); // prevent workspace keyboard shortcuts while editing
+    });
   }
 }
 
