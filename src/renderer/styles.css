@@ -706,21 +706,24 @@ body {
 .media-viewer {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.88);
+  background: rgba(0, 0, 0, 0.92);
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 9000;
+  /* Maximum z-index – element is appended to body so this beats everything */
+  z-index: 2147483647;
 }
 
 .media-viewer-content {
   position: relative;
   background: #1a1a2e;
-  border: 1px solid rgba(0, 212, 255, 0.25);
+  border: 1px solid rgba(0, 212, 255, 0.35);
   border-radius: 10px;
-  padding: 48px 24px 24px;
+  padding: 52px 24px 24px;
   width: min(90vw, 960px);
-  box-shadow: 0 0 40px rgba(0, 212, 255, 0.15);
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 0 60px rgba(0, 212, 255, 0.2), 0 20px 60px rgba(0, 0, 0, 0.8);
 }
 
 .media-viewer-close {

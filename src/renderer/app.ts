@@ -121,13 +121,52 @@ class StudyTrackerApp {
             </div>
           </div>
         </div>
-        <div class="media-viewer" id="mediaViewer" style="display: none;">
-          <div class="media-viewer-content">
-            <button class="media-viewer-close" id="closeMediaViewer">✕</button>
-            <div class="media-viewer-body" id="mediaViewerBody"></div>
-          </div>
+      `;
+
+      // Append the media-viewer directly to document.body so it escapes #app's
+      // stacking context and is guaranteed to render above the canvas.
+      const mv = document.createElement('div');
+      mv.id = 'mediaViewer';
+      mv.className = 'media-viewer';
+      // Inline all critical styles so this works even if the CSS file is stale
+      mv.style.cssText = [
+        'display: none',
+        'position: fixed',
+        'top: 0', 'right: 0', 'bottom: 0', 'left: 0',
+        'background: rgba(0,0,0,0.92)',
+        'align-items: center',
+        'justify-content: center',
+        'z-index: 2147483647',
+      ].join(';');
+      mv.innerHTML = `
+        <div class="media-viewer-content" style="
+          position: relative;
+          background: #1a1a2e;
+          border: 1px solid rgba(0,212,255,0.35);
+          border-radius: 10px;
+          padding: 52px 24px 24px;
+          width: min(90vw, 960px);
+          max-height: 90vh;
+          overflow: hidden;
+          box-shadow: 0 0 60px rgba(0,212,255,0.2), 0 20px 60px rgba(0,0,0,0.8);
+        ">
+          <button id="closeMediaViewer" style="
+            position: absolute;
+            top: 12px; right: 16px;
+            background: rgba(0,212,255,0.08);
+            border: 1px solid rgba(0,212,255,0.3);
+            color: #00d4ff;
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1;
+          ">✕</button>
+          <div id="mediaViewerBody" style="width:100%;"></div>
         </div>
       `;
+      document.body.appendChild(mv);
     }
   }
 
@@ -1450,23 +1489,29 @@ class StudyTrackerApp {
       video.src = item.content;
       video.controls = true;
       video.autoplay = true;
-      video.style.cssText = 'max-width:100%;max-height:75vh;display:block;margin:0 auto;border-radius:6px;';
+      video.style.cssText = 'max-width:100%;max-height:70vh;display:block;margin:0 auto;border-radius:6px;background:#000;';
       body.appendChild(video);
     } else {
-      const embed = document.createElement('embed');
-      embed.src = item.content;
-      embed.type = 'application/pdf';
-      embed.style.cssText = 'width:100%;height:75vh;border-radius:6px;';
-      body.appendChild(embed);
+      // iframe works better than embed for PDFs in Electron
+      const iframe = document.createElement('iframe');
+      iframe.src = item.content;
+      iframe.style.cssText = 'width:100%;height:70vh;border:none;border-radius:6px;background:#fff;';
+      body.appendChild(iframe);
     }
 
     viewer.style.display = 'flex';
 
     const closeBtn = document.getElementById('closeMediaViewer');
     if (closeBtn) closeBtn.onclick = () => this.closeMediaViewer();
-    viewer.addEventListener('click', (e) => {
-      if (e.target === viewer) this.closeMediaViewer();
-    }, { once: true });
+
+    // Backdrop click closes viewer (use named handler so it can be removed)
+    const backdropHandler = (e: MouseEvent) => {
+      if (e.target === viewer) {
+        this.closeMediaViewer();
+        viewer.removeEventListener('click', backdropHandler);
+      }
+    };
+    viewer.addEventListener('click', backdropHandler);
   }
 
   private closeMediaViewer(): void {
