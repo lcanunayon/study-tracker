@@ -7,9 +7,16 @@ interface Module {
   workspace?: WorkspaceData;
 }
 
+interface FolderFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  content: string; // data URL
+}
+
 interface WorkspaceItem {
   id: string;
-  type: 'note' | 'image' | 'drawing' | 'video' | 'pdf' | 'text';
+  type: 'note' | 'image' | 'drawing' | 'video' | 'pdf' | 'text' | 'folder';
   x: number;
   y: number;
   width: number;
@@ -21,6 +28,7 @@ interface WorkspaceItem {
   zIndex: number;
   name?: string; // Display label shown on the tile (editable via right-click)
   fontSize?: number; // For text items
+  files?: FolderFile[]; // For folder items
 }
 
 interface DrawingStroke {
@@ -61,7 +69,7 @@ class StudyTrackerApp {
   private isPanning = false;
   private lastPanX = 0;
   private lastPanY = 0;
-  private workspaceTool: 'pointer' | 'note' | 'draw' | 'erase' | 'image' | 'text' | 'connect' = 'pointer';
+  private workspaceTool: 'pointer' | 'note' | 'draw' | 'erase' | 'image' | 'text' | 'connect' | 'folder' = 'pointer';
   private drawColor = '#000000';
   private drawWidth = 2;
   private selectedItem: WorkspaceItem | null = null;
@@ -75,6 +83,8 @@ class StudyTrackerApp {
   private connectFirstItem: WorkspaceItem | null = null;
   private mouseCanvasX = 0;
   private mouseCanvasY = 0;
+  private folderPopupItemId: string | null = null;
+  private dragOverFolderId: string | null = null;
 
   constructor() {
     this.loadModules();
@@ -398,6 +408,7 @@ class StudyTrackerApp {
             <button class="tool-btn" id="toolErase" title="Erase">🧹</button>
             <button class="tool-btn" id="toolMedia" title="Add Media (image, video, PDF)">📎</button>
             <button class="tool-btn" id="toolConnect" title="Connect Items">🔗</button>
+            <button class="tool-btn" id="toolFolder" title="Create Folder">📁</button>
             <input type="color" id="drawColor" value="#000000" title="Draw Color">
             <button class="tool-btn" id="clearWorkspaceBtn" title="Clear Workspace">🗑 Clear</button>
             <div style="flex: 1;"></div>
@@ -674,6 +685,7 @@ class StudyTrackerApp {
   }
 
   private closeDetailView(): void {
+    this.closeFolderPopup();
     this.isDetailView = false;
     this.currentModule = null;
     this.render();
@@ -720,8 +732,10 @@ class StudyTrackerApp {
   private clearWorkspace(): void {
     if (!this.currentModule?.workspace) return;
     if (!confirm('This will permanently remove all items from the workspace. Continue?')) return;
+    this.closeFolderPopup();
     const ws = this.currentModule.workspace;
     ws.items = [];
+    ws.connections = [];
     ws.offsetX = 0;
     ws.offsetY = 0;
     ws.zoom = 1;
@@ -858,6 +872,41 @@ class StudyTrackerApp {
       if (item && item.type !== 'drawing') {
         this.showContextMenu(e.clientX, e.clientY, item);
       }
+    });
+
+    // Drag files from machine onto folder items on canvas
+    canvas.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const ws = this.currentModule?.workspace;
+      if (!ws) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = (e.clientX - rect.left) / ws.zoom;
+      const cy = (e.clientY - rect.top) / ws.zoom;
+      const item = this.getItemAtPosition(cx, cy, ws);
+      const newId = item?.type === 'folder' ? item.id : null;
+      if (newId !== this.dragOverFolderId) {
+        this.dragOverFolderId = newId;
+        this.drawWorkspace();
+      }
+      if (newId) e.dataTransfer!.dropEffect = 'copy';
+    });
+    canvas.addEventListener('dragleave', (e) => {
+      if (!canvas.contains(e.relatedTarget as Node) && this.dragOverFolderId) {
+        this.dragOverFolderId = null;
+        this.drawWorkspace();
+      }
+    });
+    canvas.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const prevId = this.dragOverFolderId;
+      this.dragOverFolderId = null;
+      const ws = this.currentModule?.workspace;
+      if (!ws || !prevId || !e.dataTransfer?.files.length) { this.drawWorkspace(); return; }
+      const folder = ws.items.find((i) => i.id === prevId);
+      if (folder?.type === 'folder') {
+        this.addFilesToFolder(folder, Array.from(e.dataTransfer.files));
+      }
+      this.drawWorkspace();
     });
 
     // Resize canvas pixel buffer when container changes size (prevents stretching)
@@ -1108,6 +1157,12 @@ class StudyTrackerApp {
           this.startEditingText(itemAtPos);
           return;
         }
+        if (itemAtPos.type === 'folder' && e.detail === 2) {
+          e.preventDefault();
+          this.isDrawing = false;
+          this.openFolderPopup(itemAtPos);
+          return;
+        }
         // Single click: select and prepare for drag
         this.selectedItemOffsetX = x - (itemAtPos.x + (ws?.offsetX || 0));
         this.selectedItemOffsetY = y - (itemAtPos.y + (ws?.offsetY || 0));
@@ -1137,6 +1192,9 @@ class StudyTrackerApp {
         break;
       case 'text':
         this.addTextItem(x, y);
+        break;
+      case 'folder':
+        this.addFolderItem(x, y);
         break;
       case 'image':
         this.triggerMediaUpload();
@@ -1217,7 +1275,7 @@ class StudyTrackerApp {
   }
 
   private selectTool(toolId: string): void {
-    const toolMap: { [key: string]: 'pointer' | 'note' | 'draw' | 'erase' | 'image' | 'text' | 'connect' } = {
+    const toolMap: { [key: string]: 'pointer' | 'note' | 'draw' | 'erase' | 'image' | 'text' | 'connect' | 'folder' } = {
       toolPointer: 'pointer',
       toolNote: 'note',
       toolDraw: 'draw',
@@ -1225,6 +1283,7 @@ class StudyTrackerApp {
       toolMedia: 'image', // 'image' is the internal tool type for all media
       toolText: 'text',
       toolConnect: 'connect',
+      toolFolder: 'folder',
     };
     const prev = this.workspaceTool;
     this.workspaceTool = toolMap[toolId] || 'pointer';
@@ -1544,6 +1603,51 @@ class StudyTrackerApp {
           if (4 + i * (fontSize + 4) < h) ctx.fillText(line, 4, 4 + i * (fontSize + 4));
         });
         ctx.shadowColor = 'transparent';
+        break;
+      }
+
+      case 'folder': {
+        const isDragTarget = this.dragOverFolderId === item.id;
+        ctx.fillStyle = isDragTarget ? '#1a2510' : '#111a10';
+        ctx.shadowColor = 'rgba(0,0,0,0.4)';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(0, 0, w, h);
+        ctx.shadowColor = 'transparent';
+
+        if (isDragTarget) {
+          ctx.strokeStyle = '#00ff88';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 3]);
+          ctx.strokeRect(2, 2, w - 4, h - 4);
+          ctx.setLineDash([]);
+        }
+
+        const fileCount = item.files?.length ?? 0;
+        const fEmojiSize = Math.round(Math.min(w, h) * 0.42);
+        const emojiYOffset = fileCount > 0 ? -8 : 0;
+        ctx.font = `${fEmojiSize}px serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(isDragTarget ? '📂' : '📁', w / 2, h / 2 + emojiYOffset);
+
+        if (fileCount > 0) {
+          ctx.fillStyle = isDragTarget ? 'rgba(0,255,136,0.85)' : 'rgba(0,212,255,0.75)';
+          ctx.font = `bold ${Math.max(9, Math.min(11, w * 0.08))}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillText(`${fileCount} file${fileCount !== 1 ? 's' : ''}`, w / 2, h / 2 + fEmojiSize * 0.55 + emojiYOffset);
+        }
+
+        const fLabel = item.name || 'Folder';
+        const fLabelH = 22;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, h - fLabelH, w, fLabelH);
+        ctx.fillStyle = isDragTarget ? 'rgba(0,255,136,0.9)' : 'rgba(255,255,255,0.88)';
+        ctx.font = `${Math.max(9, Math.min(11, w * 0.07))}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const fDN = fLabel.length > 24 ? fLabel.slice(0, 22) + '…' : fLabel;
+        ctx.fillText(fDN, w / 2, h - fLabelH / 2);
         break;
       }
 
@@ -1995,6 +2099,12 @@ class StudyTrackerApp {
       return btn;
     };
 
+    if (item.type === 'folder') {
+      menu.appendChild(makeBtn('📂  Open folder', () => this.openFolderPopup(item)));
+      const sep = document.createElement('div');
+      sep.style.cssText = 'height:1px;background:rgba(0,212,255,0.15);margin:2px 0;';
+      menu.appendChild(sep);
+    }
     menu.appendChild(makeBtn('✏  Rename', () => this.startRenamingItem(item)));
     menu.appendChild(makeBtn('🗑  Delete', () => this.deleteWorkspaceItem(item)));
 
@@ -2091,9 +2201,396 @@ class StudyTrackerApp {
 
   private getDefaultItemName(type: WorkspaceItem['type']): string {
     const map: Partial<Record<WorkspaceItem['type'], string>> = {
-      image: 'Image', video: 'Video', pdf: 'PDF Document', note: 'Note', text: 'Text',
+      image: 'Image', video: 'Video', pdf: 'PDF Document', note: 'Note', text: 'Text', folder: 'Folder',
     };
     return map[type] ?? 'Item';
+  }
+
+  // ===== FOLDER METHODS =====
+
+  private addFolderItem(x: number, y: number): void {
+    if (!this.currentModule?.workspace) return;
+    const ws = this.currentModule.workspace;
+    const item: WorkspaceItem = {
+      id: Math.random().toString(36),
+      type: 'folder',
+      x: x - ws.offsetX,
+      y: y - ws.offsetY,
+      width: 160,
+      height: 160,
+      name: 'New Folder',
+      files: [],
+      zIndex: ws.items.length,
+    };
+    ws.items.push(item);
+    this.saveModules();
+    this.pushHistory();
+    this.drawWorkspace();
+    // Open the folder immediately so the user can add files right away
+    this.openFolderPopup(item);
+  }
+
+  private openFolderPopup(item: WorkspaceItem): void {
+    if (item.type !== 'folder') return;
+    this.closeFolderPopup();
+    this.folderPopupItemId = item.id;
+
+    const popup = document.createElement('div');
+    popup.id = 'folderPopup';
+    popup.style.cssText = `
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.88);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 2147483647;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+      position: relative;
+      background: #0d1117;
+      border: 1px solid rgba(0,212,255,0.35);
+      border-radius: 12px;
+      width: min(92vw, 820px);
+      max-height: 85vh;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+      box-shadow: 0 0 60px rgba(0,212,255,0.15), 0 20px 60px rgba(0,0,0,0.8);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    `;
+
+    // ── Header ──────────────────────────────────────────────────────────────
+    const header = document.createElement('div');
+    header.style.cssText = `
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px; gap: 12px;
+      border-bottom: 1px solid rgba(0,212,255,0.15);
+      background: rgba(0,212,255,0.04);
+      flex-shrink: 0;
+    `;
+
+    // Editable folder name
+    const titleWrap = document.createElement('div');
+    titleWrap.style.cssText = `display:flex;align-items:center;gap:8px;min-width:0;`;
+    const folderIcon = document.createElement('span');
+    folderIcon.textContent = '📁';
+    folderIcon.style.fontSize = '18px';
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = item.name || 'Folder';
+    titleSpan.style.cssText = `color:#00d4ff;font-size:16px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px;`;
+    titleSpan.title = 'Click to rename';
+    titleSpan.onclick = () => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = item.name || '';
+      input.placeholder = 'Folder name';
+      input.style.cssText = `
+        background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.4);
+        color:#00d4ff;padding:3px 8px;border-radius:4px;
+        font-size:15px;font-weight:600;outline:none;width:220px;
+        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      `;
+      titleWrap.replaceChild(input, titleSpan);
+      input.focus(); input.select();
+      const commit = () => {
+        item.name = input.value.trim() || 'Folder';
+        titleSpan.textContent = item.name;
+        titleWrap.replaceChild(titleSpan, input);
+        this.saveModules();
+        this.drawWorkspace();
+      };
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') commit();
+        else if (ev.key === 'Escape') { titleWrap.replaceChild(titleSpan, input); }
+        ev.stopPropagation();
+      });
+    };
+    titleWrap.appendChild(folderIcon);
+    titleWrap.appendChild(titleSpan);
+
+    const rightBtns = document.createElement('div');
+    rightBtns.style.cssText = `display:flex;gap:8px;align-items:center;flex-shrink:0;`;
+
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ Add Files';
+    addBtn.style.cssText = `
+      background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);
+      color:#00d4ff;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    `;
+    addBtn.onmouseover = () => { addBtn.style.background = 'rgba(0,212,255,0.22)'; };
+    addBtn.onmouseout  = () => { addBtn.style.background = 'rgba(0,212,255,0.12)'; };
+    addBtn.onclick = () => this.triggerAddFilesToFolder(item);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = `
+      background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.3);
+      color:#00d4ff;width:32px;height:32px;border-radius:50%;
+      cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;
+    `;
+    closeBtn.onclick = () => this.closeFolderPopup();
+
+    rightBtns.appendChild(addBtn);
+    rightBtns.appendChild(closeBtn);
+    header.appendChild(titleWrap);
+    header.appendChild(rightBtns);
+
+    // ── Drop zone overlay (shown while dragging into popup) ─────────────────
+    const dropOverlay = document.createElement('div');
+    dropOverlay.style.cssText = `
+      display:none;position:absolute;inset:0;
+      background:rgba(0,212,255,0.07);
+      border:2px dashed rgba(0,212,255,0.55);
+      border-radius:12px;
+      align-items:center;justify-content:center;
+      font-size:22px;color:#00d4ff;
+      pointer-events:none;z-index:10;
+    `;
+    dropOverlay.textContent = '📂  Drop files here';
+
+    // ── File grid body ────────────────────────────────────────────────────────
+    const body = document.createElement('div');
+    body.id = 'folderPopupBody';
+    body.style.cssText = `flex:1;overflow-y:auto;padding:20px;min-height:180px;`;
+
+    content.appendChild(header);
+    content.appendChild(body);
+    content.appendChild(dropOverlay);
+    popup.appendChild(content);
+    document.body.appendChild(popup);
+
+    this.renderFolderFiles(item);
+
+    // Close on backdrop click
+    popup.addEventListener('mousedown', (e) => { if (e.target === popup) this.closeFolderPopup(); });
+
+    // Drag & drop files into folder via popup
+    content.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer?.types.includes('Files')) dropOverlay.style.display = 'flex';
+    });
+    content.addEventListener('dragleave', (e) => {
+      if (!content.contains(e.relatedTarget as Node)) dropOverlay.style.display = 'none';
+    });
+    content.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.style.display = 'none';
+      if (e.dataTransfer?.files.length) {
+        this.addFilesToFolder(item, Array.from(e.dataTransfer.files));
+      }
+    });
+  }
+
+  private renderFolderFiles(item: WorkspaceItem): void {
+    const body = document.getElementById('folderPopupBody');
+    if (!body) return;
+    const files = item.files ?? [];
+
+    if (files.length === 0) {
+      body.innerHTML = `
+        <div style="
+          display:flex;flex-direction:column;align-items:center;justify-content:center;
+          height:160px;color:rgba(255,255,255,0.3);font-size:14px;
+          font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        ">
+          <div style="font-size:52px;margin-bottom:14px;">📂</div>
+          <div>No files yet — drag files in or click <strong style="color:rgba(0,212,255,0.6)">+ Add Files</strong></div>
+        </div>`;
+      return;
+    }
+
+    const grid = document.createElement('div');
+    grid.style.cssText = `display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;`;
+
+    files.forEach((file) => {
+      const card = document.createElement('div');
+      card.style.cssText = `
+        position:relative;background:rgba(255,255,255,0.04);
+        border:1px solid rgba(255,255,255,0.1);border-radius:8px;
+        padding:14px 8px 8px;cursor:pointer;
+        display:flex;flex-direction:column;align-items:center;gap:6px;
+        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        transition:background 0.12s,border-color 0.12s;
+      `;
+
+      const delBtn = document.createElement('button');
+      delBtn.innerHTML = '✕';
+      delBtn.title = 'Remove file';
+      delBtn.style.cssText = `
+        position:absolute;top:4px;right:4px;
+        background:rgba(255,60,60,0.15);border:1px solid rgba(255,60,60,0.3);
+        color:rgba(255,100,100,0.9);width:20px;height:20px;border-radius:50%;
+        cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center;
+        opacity:0;transition:opacity 0.12s;padding:0;
+      `;
+      delBtn.onclick = (e) => { e.stopPropagation(); this.removeFileFromFolder(item, file.id); };
+
+      const emojiEl = document.createElement('div');
+      emojiEl.textContent = this.getFileEmoji(file.mimeType);
+      emojiEl.style.cssText = `font-size:34px;line-height:1;`;
+
+      const nameEl = document.createElement('div');
+      const dispName = file.name.length > 16 ? file.name.slice(0, 14) + '…' : file.name;
+      nameEl.textContent = dispName;
+      nameEl.title = file.name;
+      nameEl.style.cssText = `font-size:11px;color:rgba(255,255,255,0.65);text-align:center;word-break:break-word;line-height:1.3;`;
+
+      card.onmouseover = () => {
+        card.style.background = 'rgba(0,212,255,0.08)';
+        card.style.borderColor = 'rgba(0,212,255,0.3)';
+        delBtn.style.opacity = '1';
+      };
+      card.onmouseout = () => {
+        card.style.background = 'rgba(255,255,255,0.04)';
+        card.style.borderColor = 'rgba(255,255,255,0.1)';
+        delBtn.style.opacity = '0';
+      };
+      card.onclick = () => this.openFolderFile(file);
+
+      card.appendChild(delBtn);
+      card.appendChild(emojiEl);
+      card.appendChild(nameEl);
+      grid.appendChild(card);
+    });
+
+    body.innerHTML = '';
+    body.appendChild(grid);
+  }
+
+  private closeFolderPopup(): void {
+    const popup = document.getElementById('folderPopup');
+    if (popup?.parentNode) popup.parentNode.removeChild(popup);
+    this.folderPopupItemId = null;
+  }
+
+  private triggerAddFilesToFolder(item: WorkspaceItem): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = 'image/*,video/*,audio/*,.pdf,application/pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx';
+    input.onchange = (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files ?? []);
+      if (files.length) this.addFilesToFolder(item, files);
+    };
+    input.click();
+  }
+
+  private addFilesToFolder(item: WorkspaceItem, files: File[]): void {
+    if (item.type !== 'folder') return;
+    if (!item.files) item.files = [];
+    let remaining = files.length;
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        item.files!.push({
+          id: Math.random().toString(36),
+          name: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          content: evt.target!.result as string,
+        });
+        remaining--;
+        if (remaining === 0) {
+          this.saveModules();
+          this.pushHistory();
+          this.drawWorkspace();
+          if (this.folderPopupItemId === item.id) this.renderFolderFiles(item);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  private removeFileFromFolder(item: WorkspaceItem, fileId: string): void {
+    if (!item.files) return;
+    item.files = item.files.filter((f) => f.id !== fileId);
+    this.saveModules();
+    this.pushHistory();
+    this.drawWorkspace();
+    if (this.folderPopupItemId === item.id) this.renderFolderFiles(item);
+  }
+
+  private openFolderFile(file: FolderFile): void {
+    const mime = file.mimeType;
+    if (mime.startsWith('image/')) {
+      // Reuse image lightbox with a temp item
+      this.fullScreenImage = { id: 'tmp', type: 'image', x: 0, y: 0, width: 0, height: 0, content: file.content, zIndex: 0 };
+      const lightbox = document.getElementById('imageLightbox');
+      const img = document.getElementById('lightboxImage') as HTMLImageElement;
+      if (lightbox && img) { img.src = file.content; lightbox.classList.add('show'); this.setupLightboxControls(); }
+    } else if (mime.startsWith('video/') || mime === 'application/pdf' || mime === 'pdf') {
+      const type = mime.startsWith('video/') ? 'video' : 'pdf';
+      const tmpItem: WorkspaceItem = { id: 'tmp', type, x: 0, y: 0, width: 0, height: 0, content: file.content, zIndex: 0, name: file.name };
+      this.openMediaViewer(tmpItem);
+    } else if (mime.startsWith('audio/')) {
+      this.openAudioViewer(file);
+    } else {
+      // Generic: show in a simple overlay with iframe
+      this.openGenericFileViewer(file);
+    }
+  }
+
+  private openAudioViewer(file: FolderFile): void {
+    const viewer = document.getElementById('mediaViewer');
+    const body = document.getElementById('mediaViewerBody');
+    if (!viewer || !body) return;
+    body.innerHTML = '';
+    const audio = document.createElement('audio');
+    audio.src = file.content;
+    audio.controls = true;
+    audio.autoplay = true;
+    audio.style.cssText = 'width:100%;margin:20px 0;display:block;';
+    const label = document.createElement('p');
+    label.textContent = file.name;
+    label.style.cssText = 'color:#fff;text-align:center;margin:0 0 12px;font-size:14px;opacity:0.7;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+    body.appendChild(label);
+    body.appendChild(audio);
+    viewer.style.display = 'flex';
+    const closeBtn = document.getElementById('closeMediaViewer');
+    if (closeBtn) closeBtn.onclick = () => this.closeMediaViewer();
+    const bdHandler = (e: MouseEvent) => { if (e.target === viewer) { this.closeMediaViewer(); viewer.removeEventListener('click', bdHandler); } };
+    viewer.addEventListener('click', bdHandler);
+  }
+
+  private openGenericFileViewer(file: FolderFile): void {
+    const viewer = document.getElementById('mediaViewer');
+    const body = document.getElementById('mediaViewerBody');
+    if (!viewer || !body) return;
+    body.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;padding:30px 20px;gap:14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+    const icon = document.createElement('div');
+    icon.textContent = this.getFileEmoji(file.mimeType);
+    icon.style.fontSize = '56px';
+    const nm = document.createElement('p');
+    nm.textContent = file.name;
+    nm.style.cssText = 'color:#fff;font-size:15px;margin:0;opacity:0.85;text-align:center;';
+    const dlBtn = document.createElement('a');
+    dlBtn.href = file.content;
+    dlBtn.download = file.name;
+    dlBtn.textContent = '⬇  Download file';
+    dlBtn.style.cssText = 'color:#00d4ff;font-size:13px;text-decoration:none;border:1px solid rgba(0,212,255,0.4);padding:6px 16px;border-radius:6px;';
+    wrap.appendChild(icon);
+    wrap.appendChild(nm);
+    wrap.appendChild(dlBtn);
+    body.appendChild(wrap);
+    viewer.style.display = 'flex';
+    const closeBtn = document.getElementById('closeMediaViewer');
+    if (closeBtn) closeBtn.onclick = () => this.closeMediaViewer();
+    const bdHandler = (e: MouseEvent) => { if (e.target === viewer) { this.closeMediaViewer(); viewer.removeEventListener('click', bdHandler); } };
+    viewer.addEventListener('click', bdHandler);
+  }
+
+  private getFileEmoji(mimeType: string): string {
+    if (mimeType.startsWith('image/')) return '🖼️';
+    if (mimeType.startsWith('video/')) return '🎬';
+    if (mimeType === 'application/pdf' || mimeType === 'pdf') return '📄';
+    if (mimeType.startsWith('audio/')) return '🎵';
+    if (mimeType.includes('word') || mimeType.includes('document')) return '📝';
+    if (mimeType.includes('sheet') || mimeType.includes('excel')) return '📊';
+    if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return '📊';
+    if (mimeType.startsWith('text/')) return '📃';
+    return '📎';
   }
 }
 
