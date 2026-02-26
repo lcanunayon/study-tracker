@@ -9,12 +9,12 @@ interface Module {
 
 interface WorkspaceItem {
   id: string;
-  type: 'note' | 'image' | 'drawing';
+  type: 'note' | 'image' | 'drawing' | 'video' | 'pdf';
   x: number;
   y: number;
   width: number;
   height: number;
-  content?: string; // For notes and images
+  content?: string; // For notes, images, video, pdf (data URL)
   color?: string; // For notes
   rotation?: number; // For images
   strokes?: DrawingStroke[]; // For drawings
@@ -119,6 +119,12 @@ class StudyTrackerApp {
               <button id="lightboxRotateLeft">↺</button>
               <button id="lightboxRotateRight">↻</button>
             </div>
+          </div>
+        </div>
+        <div class="media-viewer" id="mediaViewer" style="display: none;">
+          <div class="media-viewer-content">
+            <button class="media-viewer-close" id="closeMediaViewer">✕</button>
+            <div class="media-viewer-body" id="mediaViewerBody"></div>
           </div>
         </div>
       `;
@@ -338,7 +344,7 @@ class StudyTrackerApp {
             <button class="tool-btn" id="toolNote" title="Add Note">📝</button>
             <button class="tool-btn" id="toolDraw" title="Draw">✏</button>
             <button class="tool-btn" id="toolErase" title="Erase">🧹</button>
-            <button class="tool-btn" id="toolImage" title="Add Image">🖼</button>
+            <button class="tool-btn" id="toolMedia" title="Add Media (image, video, PDF)">📎</button>
             <input type="color" id="drawColor" value="#000000" title="Draw Color">
             <button class="tool-btn" id="clearWorkspaceBtn" title="Clear Workspace">🗑 Clear</button>
             <div style="flex: 1;"></div>
@@ -783,6 +789,20 @@ class StudyTrackerApp {
     canvas.addEventListener('mousewheel', (e) => this.handleCanvasWheel(e as any), { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    // Resize canvas pixel buffer when container changes size (prevents stretching)
+    const resizeObserver = new ResizeObserver(() => {
+      if (!this.workspaceCanvas) return;
+      const newW = this.workspaceCanvas.offsetWidth;
+      const newH = this.workspaceCanvas.offsetHeight;
+      if (newW > 0 && newH > 0 &&
+          (this.workspaceCanvas.width !== newW || this.workspaceCanvas.height !== newH)) {
+        this.workspaceCanvas.width = newW;
+        this.workspaceCanvas.height = newH;
+        this.drawWorkspace();
+      }
+    });
+    resizeObserver.observe(canvas);
+
     // Set default tool
     const pointerBtn = canvas.parentElement?.querySelector('#toolPointer');
     if (pointerBtn) {
@@ -902,12 +922,18 @@ class StudyTrackerApp {
       const itemAtPos = this.getItemAtPosition(x, y, ws);
       if (itemAtPos) {
         this.selectedItem = itemAtPos;
-        // Double-click: open image lightbox or edit note
+        // Double-click: open viewer or edit note
         if (itemAtPos.type === 'image' && e.detail === 2) {
           this.openImageLightbox(itemAtPos);
           return;
         }
+        if ((itemAtPos.type === 'video' || itemAtPos.type === 'pdf') && e.detail === 2) {
+          this.openMediaViewer(itemAtPos);
+          return;
+        }
         if (itemAtPos.type === 'note' && e.detail === 2) {
+          e.preventDefault(); // prevent Electron from reverting textarea focus
+          this.isDrawing = false;  // cancel any drag that started on first click
           this.startEditingNote(itemAtPos);
           return;
         }
@@ -933,7 +959,7 @@ class StudyTrackerApp {
         this.addNote(x, y);
         break;
       case 'image':
-        this.triggerImageUpload();
+        this.triggerMediaUpload();
         break;
     }
   }
@@ -1006,7 +1032,7 @@ class StudyTrackerApp {
       toolNote: 'note',
       toolDraw: 'draw',
       toolErase: 'erase',
-      toolImage: 'image',
+      toolMedia: 'image', // 'image' is the internal tool type for all media
     };
     this.workspaceTool = toolMap[toolId] || 'pointer';
     if (this.workspaceCanvas) {
@@ -1078,17 +1104,17 @@ class StudyTrackerApp {
     this.drawWorkspace();
   }
 
-  private triggerImageUpload(): void {
+  private triggerMediaUpload(): void {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/*';
+    input.accept = 'image/*,video/*,.pdf,application/pdf';
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
         const reader = new FileReader();
         reader.onload = (evt) => {
           const dataURL = evt.target?.result as string;
-          this.addImageToWorkspace(dataURL);
+          this.addMediaToWorkspace(dataURL, file.type);
         };
         reader.readAsDataURL(file);
       }
@@ -1096,21 +1122,26 @@ class StudyTrackerApp {
     input.click();
   }
 
-  private addImageToWorkspace(dataURL: string): void {
+  private addMediaToWorkspace(dataURL: string, mimeType: string): void {
     if (!this.currentModule?.workspace) return;
     const ws = this.currentModule.workspace;
-    const imageItem: WorkspaceItem = {
+
+    let type: 'image' | 'video' | 'pdf' = 'image';
+    if (mimeType.startsWith('video/')) type = 'video';
+    else if (mimeType === 'application/pdf' || mimeType === 'pdf') type = 'pdf';
+
+    const item: WorkspaceItem = {
       id: Math.random().toString(36),
-      type: 'image',
+      type,
       x: 100,
       y: 100,
       width: 200,
-      height: 200,
+      height: type === 'video' ? 140 : 200,
       content: dataURL,
       rotation: 0,
       zIndex: ws.items.length,
     };
-    ws.items.push(imageItem);
+    ws.items.push(item);
     this.saveModules();
     this.pushHistory();
     this.drawWorkspace();
@@ -1167,6 +1198,59 @@ class StudyTrackerApp {
       case 'drawing':
         // Drawing items are now handled by renderDrawingLayer — skip here
         break;
+
+      case 'video': {
+        // Dark background
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(0, 0, w, h);
+        // Play circle
+        const vcx = w / 2, vcy = h / 2, vr = Math.min(w, h) * 0.22;
+        ctx.fillStyle = 'rgba(0,212,255,0.85)';
+        ctx.beginPath();
+        ctx.arc(vcx, vcy, vr, 0, Math.PI * 2);
+        ctx.fill();
+        // Play triangle
+        ctx.fillStyle = '#0f0f0f';
+        ctx.beginPath();
+        ctx.moveTo(vcx - vr * 0.28, vcy - vr * 0.46);
+        ctx.lineTo(vcx + vr * 0.55, vcy);
+        ctx.lineTo(vcx - vr * 0.28, vcy + vr * 0.46);
+        ctx.closePath();
+        ctx.fill();
+        // "VIDEO" label
+        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        ctx.font = `bold ${Math.max(9, w * 0.09)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('VIDEO', w / 2, h - 6);
+        break;
+      }
+
+      case 'pdf': {
+        // Dark red background
+        ctx.fillStyle = '#1a0808';
+        ctx.fillRect(0, 0, w, h);
+        // Red icon block
+        const iconSize = Math.min(w, h) * 0.38;
+        const iconX = (w - iconSize) / 2;
+        const iconY = (h - iconSize) / 2 - 8;
+        ctx.fillStyle = '#e53935';
+        ctx.beginPath();
+        ctx.roundRect(iconX, iconY, iconSize, iconSize, 4);
+        ctx.fill();
+        // "PDF" text in icon
+        ctx.fillStyle = 'white';
+        ctx.font = `bold ${Math.max(8, iconSize * 0.38)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('PDF', w / 2, iconY + iconSize / 2);
+        // Label below
+        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        ctx.font = `${Math.max(9, w * 0.08)}px Arial`;
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('PDF Document', w / 2, h - 6);
+        break;
+      }
 
       case 'image':
         if (item.content) {
@@ -1322,8 +1406,11 @@ class StudyTrackerApp {
       overflow: auto;
     `;
     document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
+    // Defer focus so Electron doesn't revert it during the mousedown event
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.select();
+    });
 
     const finish = () => {
       if (!document.body.contains(textarea)) return;
@@ -1335,7 +1422,8 @@ class StudyTrackerApp {
       this.drawWorkspace();
     };
 
-    textarea.addEventListener('blur', finish);
+    // Defer blur listener attachment to avoid it firing on the initial focus
+    requestAnimationFrame(() => textarea.addEventListener('blur', finish));
     textarea.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (document.body.contains(textarea)) {
@@ -1348,6 +1436,45 @@ class StudyTrackerApp {
       }
       e.stopPropagation(); // prevent workspace keyboard shortcuts while editing
     });
+  }
+
+  private openMediaViewer(item: WorkspaceItem): void {
+    if ((item.type !== 'video' && item.type !== 'pdf') || !item.content) return;
+    const viewer = document.getElementById('mediaViewer');
+    const body = document.getElementById('mediaViewerBody');
+    if (!viewer || !body) return;
+
+    body.innerHTML = '';
+    if (item.type === 'video') {
+      const video = document.createElement('video');
+      video.src = item.content;
+      video.controls = true;
+      video.autoplay = true;
+      video.style.cssText = 'max-width:100%;max-height:75vh;display:block;margin:0 auto;border-radius:6px;';
+      body.appendChild(video);
+    } else {
+      const embed = document.createElement('embed');
+      embed.src = item.content;
+      embed.type = 'application/pdf';
+      embed.style.cssText = 'width:100%;height:75vh;border-radius:6px;';
+      body.appendChild(embed);
+    }
+
+    viewer.style.display = 'flex';
+
+    const closeBtn = document.getElementById('closeMediaViewer');
+    if (closeBtn) closeBtn.onclick = () => this.closeMediaViewer();
+    viewer.addEventListener('click', (e) => {
+      if (e.target === viewer) this.closeMediaViewer();
+    }, { once: true });
+  }
+
+  private closeMediaViewer(): void {
+    const viewer = document.getElementById('mediaViewer');
+    if (!viewer) return;
+    viewer.style.display = 'none';
+    const body = document.getElementById('mediaViewerBody');
+    if (body) body.innerHTML = ''; // stop video/pdf playback
   }
 }
 
