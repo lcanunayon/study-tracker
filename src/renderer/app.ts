@@ -19,6 +19,7 @@ interface WorkspaceItem {
   rotation?: number; // For images
   strokes?: DrawingStroke[]; // For drawings
   zIndex: number;
+  name?: string; // Display label shown on the tile (editable via right-click)
 }
 
 interface DrawingStroke {
@@ -826,7 +827,19 @@ class StudyTrackerApp {
     canvas.addEventListener('mousemove', (e) => this.handleCanvasMouseMove(e));
     canvas.addEventListener('mouseup', () => this.handleCanvasMouseUp());
     canvas.addEventListener('mousewheel', (e) => this.handleCanvasWheel(e as any), { passive: false });
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (this.workspaceTool !== 'pointer') return;
+      const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
+      const ws = this.currentModule?.workspace;
+      if (!ws) return;
+      const cx = (e.clientX - rect.left) / ws.zoom;
+      const cy = (e.clientY - rect.top) / ws.zoom;
+      const item = this.getItemAtPosition(cx, cy, ws);
+      if (item && item.type !== 'drawing') {
+        this.showContextMenu(e.clientX, e.clientY, item);
+      }
+    });
 
     // Resize canvas pixel buffer when container changes size (prevents stretching)
     const resizeObserver = new ResizeObserver(() => {
@@ -948,8 +961,15 @@ class StudyTrackerApp {
     const y = (e.clientY - rect.top) / (this.currentModule?.workspace?.zoom || 1);
     const ws = this.currentModule?.workspace;
 
-    // Right-click for panning
+    // Right-click: context menu on items, pan on empty space
     if (e.button === 2) {
+      if (this.workspaceTool === 'pointer') {
+        const itemAtPos = this.getItemAtPosition(x, y, ws);
+        if (itemAtPos && itemAtPos.type !== 'drawing') {
+          // contextmenu event fires after mousedown and will show the menu
+          return;
+        }
+      }
       this.isPanning = true;
       this.lastPanX = x;
       this.lastPanY = y;
@@ -1153,7 +1173,7 @@ class StudyTrackerApp {
         const reader = new FileReader();
         reader.onload = (evt) => {
           const dataURL = evt.target?.result as string;
-          this.addMediaToWorkspace(dataURL, file.type);
+          this.addMediaToWorkspace(dataURL, file.type, file.name);
         };
         reader.readAsDataURL(file);
       }
@@ -1161,13 +1181,16 @@ class StudyTrackerApp {
     input.click();
   }
 
-  private addMediaToWorkspace(dataURL: string, mimeType: string): void {
+  private addMediaToWorkspace(dataURL: string, mimeType: string, fileName?: string): void {
     if (!this.currentModule?.workspace) return;
     const ws = this.currentModule.workspace;
 
     let type: 'image' | 'video' | 'pdf' = 'image';
     if (mimeType.startsWith('video/')) type = 'video';
     else if (mimeType === 'application/pdf' || mimeType === 'pdf') type = 'pdf';
+
+    // Use filename (without extension) as the default display name
+    const name = fileName ? fileName.replace(/\.[^.]+$/, '') : undefined;
 
     const item: WorkspaceItem = {
       id: Math.random().toString(36),
@@ -1179,6 +1202,7 @@ class StudyTrackerApp {
       content: dataURL,
       rotation: 0,
       zIndex: ws.items.length,
+      name,
     };
     ws.items.push(item);
     this.saveModules();
@@ -1216,101 +1240,115 @@ class StudyTrackerApp {
 
     switch (item.type) {
       case 'note': {
-        // Draw sticky note background
         ctx.fillStyle = item.color || '#ffeb3b';
         ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
         ctx.shadowBlur = 8;
         ctx.fillRect(0, 0, w, h);
         ctx.shadowColor = 'transparent';
-        // Draw note text with word-wrap
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+
+        let yOff = 8;
+        // Optional title (name) rendered above the body text
+        if (item.name) {
+          ctx.fillStyle = 'rgba(0,0,0,0.7)';
+          ctx.font = 'bold 11px Arial';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          const titleLines = this.wrapText(ctx, item.name, w - 16);
+          titleLines.forEach((l, i) => { if (yOff + i * 14 < h - 8) ctx.fillText(l, 8, yOff + i * 14); });
+          yOff += titleLines.length * 14 + 4;
+          ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+          ctx.lineWidth = 0.5;
+          ctx.beginPath(); ctx.moveTo(8, yOff); ctx.lineTo(w - 8, yOff); ctx.stroke();
+          yOff += 5;
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
         ctx.font = '12px Arial';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
         const noteLines = this.wrapText(ctx, item.content || '', w - 16);
-        noteLines.forEach((line, i) => {
-          if (8 + i * 16 < h - 8) ctx.fillText(line, 8, 8 + i * 16);
-        });
+        noteLines.forEach((line, i) => { if (yOff + i * 16 < h - 8) ctx.fillText(line, 8, yOff + i * 16); });
         break;
       }
 
       case 'drawing':
-        // Drawing items are now handled by renderDrawingLayer — skip here
+        // Handled by renderDrawingLayer
         break;
 
       case 'video': {
-        // Dark background
         ctx.fillStyle = '#111827';
         ctx.fillRect(0, 0, w, h);
-        // Play circle
-        const vcx = w / 2, vcy = h / 2, vr = Math.min(w, h) * 0.22;
-        ctx.fillStyle = 'rgba(0,212,255,0.85)';
-        ctx.beginPath();
-        ctx.arc(vcx, vcy, vr, 0, Math.PI * 2);
-        ctx.fill();
-        // Play triangle
-        ctx.fillStyle = '#0f0f0f';
-        ctx.beginPath();
-        ctx.moveTo(vcx - vr * 0.28, vcy - vr * 0.46);
-        ctx.lineTo(vcx + vr * 0.55, vcy);
-        ctx.lineTo(vcx - vr * 0.28, vcy + vr * 0.46);
-        ctx.closePath();
-        ctx.fill();
-        // "VIDEO" label
-        ctx.fillStyle = 'rgba(255,255,255,0.65)';
-        ctx.font = `bold ${Math.max(9, w * 0.09)}px Arial`;
+        const emojiSize = Math.round(Math.min(w, h) * 0.45);
+        ctx.font = `${emojiSize}px serif`;
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText('VIDEO', w / 2, h - 6);
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🎬', w / 2, h / 2);
+        // Name label bar at bottom
+        const vLabel = item.name || 'Video';
+        const vLabelH = 22;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, h - vLabelH, w, vLabelH);
+        ctx.fillStyle = 'rgba(255,255,255,0.88)';
+        ctx.font = `${Math.max(9, Math.min(11, w * 0.07))}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const vDN = vLabel.length > 24 ? vLabel.slice(0, 22) + '…' : vLabel;
+        ctx.fillText(vDN, w / 2, h - vLabelH / 2);
         break;
       }
 
       case 'pdf': {
-        // Dark red background
         ctx.fillStyle = '#1a0808';
         ctx.fillRect(0, 0, w, h);
-        // Red icon block
-        const iconSize = Math.min(w, h) * 0.38;
-        const iconX = (w - iconSize) / 2;
-        const iconY = (h - iconSize) / 2 - 8;
-        ctx.fillStyle = '#e53935';
-        ctx.beginPath();
-        ctx.roundRect(iconX, iconY, iconSize, iconSize, 4);
-        ctx.fill();
-        // "PDF" text in icon
-        ctx.fillStyle = 'white';
-        ctx.font = `bold ${Math.max(8, iconSize * 0.38)}px Arial`;
+        const pEmojiSize = Math.round(Math.min(w, h) * 0.45);
+        ctx.font = `${pEmojiSize}px serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('PDF', w / 2, iconY + iconSize / 2);
-        // Label below
-        ctx.fillStyle = 'rgba(255,255,255,0.65)';
-        ctx.font = `${Math.max(9, w * 0.08)}px Arial`;
-        ctx.textBaseline = 'bottom';
-        ctx.fillText('PDF Document', w / 2, h - 6);
+        ctx.fillText('📄', w / 2, h / 2);
+        // Name label bar at bottom
+        const pLabel = item.name || 'PDF Document';
+        const pLabelH = 22;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, h - pLabelH, w, pLabelH);
+        ctx.fillStyle = 'rgba(255,255,255,0.88)';
+        ctx.font = `${Math.max(9, Math.min(11, w * 0.07))}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const pDN = pLabel.length > 24 ? pLabel.slice(0, 22) + '…' : pLabel;
+        ctx.fillText(pDN, w / 2, h - pLabelH / 2);
         break;
       }
 
       case 'image':
         if (item.content) {
-          // Use cached image to avoid async onload issues
           const cached = this.imageCache.get(item.content);
-          if (cached) {
+          if (cached && cached.complete && cached.naturalWidth > 0) {
             ctx.drawImage(cached, 0, 0, w, h);
+            // Name overlay at bottom when set
+            if (item.name) {
+              const iLabelH = 20;
+              ctx.fillStyle = 'rgba(0,0,0,0.5)';
+              ctx.fillRect(0, h - iLabelH, w, iLabelH);
+              ctx.fillStyle = 'rgba(255,255,255,0.9)';
+              ctx.font = `${Math.max(9, Math.min(11, w * 0.07))}px Arial`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              const iDN = item.name.length > 24 ? item.name.slice(0, 22) + '…' : item.name;
+              ctx.fillText(iDN, w / 2, h - iLabelH / 2);
+            }
           } else {
-            // Load and cache; redraw once loaded
-            const img = new Image();
-            this.imageCache.set(item.content, img);
-            img.onload = () => this.drawWorkspace();
-            img.src = item.content;
-            // Placeholder while loading
-            ctx.fillStyle = 'rgba(80,80,80,0.4)';
+            if (!cached) {
+              const img = new Image();
+              this.imageCache.set(item.content, img);
+              img.onload = () => this.drawWorkspace();
+              img.src = item.content;
+            }
+            // Emoji placeholder while loading
+            ctx.fillStyle = '#1a1a2e';
             ctx.fillRect(0, 0, w, h);
-            ctx.fillStyle = '#fff';
-            ctx.font = '12px Arial';
+            ctx.font = `${Math.round(Math.min(w, h) * 0.35)}px serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('Loading…', w / 2, h / 2);
+            ctx.fillText('🖼️', w / 2, h / 2);
           }
         }
         break;
@@ -1520,6 +1558,126 @@ class StudyTrackerApp {
     viewer.style.display = 'none';
     const body = document.getElementById('mediaViewerBody');
     if (body) body.innerHTML = ''; // stop video/pdf playback
+  }
+
+  // ===== CONTEXT MENU =====
+
+  private showContextMenu(screenX: number, screenY: number, item: WorkspaceItem): void {
+    this.hideContextMenu();
+
+    const menu = document.createElement('div');
+    menu.id = 'wsContextMenu';
+    menu.style.cssText = `
+      position: fixed;
+      left: ${screenX}px; top: ${screenY}px;
+      background: #1a1a2e;
+      border: 1px solid rgba(0,212,255,0.3);
+      border-radius: 6px;
+      padding: 4px 0;
+      z-index: 2147483646;
+      min-width: 150px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    `;
+
+    const makeBtn = (label: string, onClick: () => void) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = `
+        display: block; width: 100%; padding: 8px 16px;
+        background: none; border: none; color: #fff;
+        text-align: left; cursor: pointer; font-size: 13px;
+        white-space: nowrap;
+      `;
+      btn.onmouseover = () => { btn.style.background = 'rgba(0,212,255,0.12)'; };
+      btn.onmouseout  = () => { btn.style.background = 'none'; };
+      btn.onclick = () => { this.hideContextMenu(); onClick(); };
+      return btn;
+    };
+
+    menu.appendChild(makeBtn('✏  Rename', () => this.startRenamingItem(item)));
+    menu.appendChild(makeBtn('🗑  Delete', () => this.deleteWorkspaceItem(item)));
+    document.body.appendChild(menu);
+
+    // Nudge menu back on-screen if it overflows
+    requestAnimationFrame(() => {
+      const r = menu.getBoundingClientRect();
+      if (r.right  > window.innerWidth)  menu.style.left = `${screenX - r.width}px`;
+      if (r.bottom > window.innerHeight) menu.style.top  = `${screenY - r.height}px`;
+    });
+
+    // Click outside closes the menu
+    const closeHandler = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node)) {
+        this.hideContextMenu();
+        document.removeEventListener('mousedown', closeHandler, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeHandler, true), 0);
+  }
+
+  private hideContextMenu(): void {
+    const el = document.getElementById('wsContextMenu');
+    if (el?.parentNode) el.parentNode.removeChild(el);
+  }
+
+  private deleteWorkspaceItem(item: WorkspaceItem): void {
+    if (!this.currentModule?.workspace) return;
+    this.currentModule.workspace.items = this.currentModule.workspace.items.filter(i => i.id !== item.id);
+    if (this.selectedItem?.id === item.id) this.selectedItem = null;
+    this.saveModules();
+    this.pushHistory();
+    this.drawWorkspace();
+  }
+
+  private startRenamingItem(item: WorkspaceItem): void {
+    if (!this.workspaceCanvas) return;
+    const ws = this.currentModule?.workspace;
+    if (!ws) return;
+
+    const canvasRect = this.workspaceCanvas.getBoundingClientRect();
+    const itemScreenX = (item.x + ws.offsetX) * ws.zoom + canvasRect.left;
+    const itemScreenW = item.width * ws.zoom;
+    // Position the input over the name label bar at the bottom of the tile
+    const labelBarTop = (item.y + ws.offsetY + item.height) * ws.zoom + canvasRect.top - 26;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = item.name || '';
+    input.placeholder = this.getDefaultItemName(item.type);
+    input.style.cssText = `
+      position: fixed;
+      left: ${itemScreenX}px; top: ${labelBarTop}px;
+      width: ${itemScreenW}px; height: 26px;
+      background: rgba(10,10,30,0.97);
+      border: 1px solid #00d4ff; border-radius: 3px;
+      color: #fff; font: 12px Arial, sans-serif;
+      padding: 2px 8px; z-index: 2147483645;
+      outline: none; box-sizing: border-box;
+    `;
+    document.body.appendChild(input);
+    requestAnimationFrame(() => { input.focus(); input.select(); });
+
+    const finish = () => {
+      if (!document.body.contains(input)) return;
+      item.name = input.value.trim() || undefined;
+      document.body.removeChild(input);
+      this.saveModules();
+      this.drawWorkspace();
+    };
+    requestAnimationFrame(() => input.addEventListener('blur', finish));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') finish();
+      else if (e.key === 'Escape') { if (document.body.contains(input)) document.body.removeChild(input); }
+      e.stopPropagation();
+    });
+  }
+
+  private getDefaultItemName(type: WorkspaceItem['type']): string {
+    const map: Partial<Record<WorkspaceItem['type'], string>> = {
+      image: 'Image', video: 'Video', pdf: 'PDF Document', note: 'Note',
+    };
+    return map[type] ?? 'Item';
   }
 }
 
