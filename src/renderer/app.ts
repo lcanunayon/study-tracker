@@ -9,17 +9,18 @@ interface Module {
 
 interface WorkspaceItem {
   id: string;
-  type: 'note' | 'image' | 'drawing' | 'video' | 'pdf';
+  type: 'note' | 'image' | 'drawing' | 'video' | 'pdf' | 'text';
   x: number;
   y: number;
   width: number;
   height: number;
-  content?: string; // For notes, images, video, pdf (data URL)
-  color?: string; // For notes
+  content?: string; // For notes, images, video, pdf (data URL), text
+  color?: string; // For notes and text
   rotation?: number; // For images
   strokes?: DrawingStroke[]; // For drawings
   zIndex: number;
   name?: string; // Display label shown on the tile (editable via right-click)
+  fontSize?: number; // For text items
 }
 
 interface DrawingStroke {
@@ -28,11 +29,18 @@ interface DrawingStroke {
   width: number;
 }
 
+interface Connection {
+  id: string;
+  fromId: string;
+  toId: string;
+}
+
 interface WorkspaceData {
   items: WorkspaceItem[];
   offsetX: number;
   offsetY: number;
   zoom: number;
+  connections?: Connection[];
 }
 
 class StudyTrackerApp {
@@ -53,7 +61,7 @@ class StudyTrackerApp {
   private isPanning = false;
   private lastPanX = 0;
   private lastPanY = 0;
-  private workspaceTool: 'pointer' | 'note' | 'draw' | 'erase' | 'image' = 'pointer';
+  private workspaceTool: 'pointer' | 'note' | 'draw' | 'erase' | 'image' | 'text' | 'connect' = 'pointer';
   private drawColor = '#000000';
   private drawWidth = 2;
   private selectedItem: WorkspaceItem | null = null;
@@ -64,6 +72,9 @@ class StudyTrackerApp {
   private editingNoteId: string | null = null;
   private imageCache: Map<string, HTMLImageElement> = new Map();
   private currentStroke: DrawingStroke | null = null;
+  private connectFirstItem: WorkspaceItem | null = null;
+  private mouseCanvasX = 0;
+  private mouseCanvasY = 0;
 
   constructor() {
     this.loadModules();
@@ -382,9 +393,11 @@ class StudyTrackerApp {
             <button class="tool-btn" id="redoWorkspaceBtn" title="Redo">↷</button>
             <button class="tool-btn" id="toolPointer" title="Select">➡</button>
             <button class="tool-btn" id="toolNote" title="Add Note">📝</button>
+            <button class="tool-btn" id="toolText" title="Add Text">🔤</button>
             <button class="tool-btn" id="toolDraw" title="Draw">✏</button>
             <button class="tool-btn" id="toolErase" title="Erase">🧹</button>
             <button class="tool-btn" id="toolMedia" title="Add Media (image, video, PDF)">📎</button>
+            <button class="tool-btn" id="toolConnect" title="Connect Items">🔗</button>
             <input type="color" id="drawColor" value="#000000" title="Draw Color">
             <button class="tool-btn" id="clearWorkspaceBtn" title="Clear Workspace">🗑 Clear</button>
             <div style="flex: 1;"></div>
@@ -829,12 +842,18 @@ class StudyTrackerApp {
     canvas.addEventListener('mousewheel', (e) => this.handleCanvasWheel(e as any), { passive: false });
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      if (this.workspaceTool !== 'pointer') return;
+      if (this.workspaceTool !== 'pointer' && this.workspaceTool !== 'connect') return;
       const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
       const ws = this.currentModule?.workspace;
       if (!ws) return;
       const cx = (e.clientX - rect.left) / ws.zoom;
       const cy = (e.clientY - rect.top) / ws.zoom;
+      // Connection line takes priority over items
+      const conn = this.getConnectionAtPosition(cx, cy, ws);
+      if (conn) {
+        this.showConnectionContextMenu(e.clientX, e.clientY, conn);
+        return;
+      }
       const item = this.getItemAtPosition(cx, cy, ws);
       if (item && item.type !== 'drawing') {
         this.showContextMenu(e.clientX, e.clientY, item);
@@ -903,6 +922,9 @@ class StudyTrackerApp {
       }
     }
 
+    // Draw connections behind items
+    this.drawConnections(ctx, ws);
+
     // Draw workspace items (drawing layers rendered separately to isolate the eraser)
     ws.items.forEach((item) => {
       if (item.type === 'drawing') {
@@ -911,6 +933,11 @@ class StudyTrackerApp {
         this.drawWorkspaceItem(ctx, item, ws);
       }
     });
+
+    // Draw connect-tool rubber-band on top of everything
+    if (this.workspaceTool === 'connect' && this.connectFirstItem) {
+      this.drawConnectRubberBand(ctx, ws);
+    }
 
     // Draw zoom level
     const zoomLevel = document.getElementById('zoomLevel');
@@ -954,6 +981,75 @@ class StudyTrackerApp {
     ctx.drawImage(offCanvas, 0, 0);
   }
 
+  private drawConnections(ctx: CanvasRenderingContext2D, ws: WorkspaceData): void {
+    if (!ws.connections?.length) return;
+    ws.connections.forEach((conn) => {
+      const fromItem = ws.items.find((i) => i.id === conn.fromId);
+      const toItem   = ws.items.find((i) => i.id === conn.toId);
+      if (!fromItem || !toItem) return;
+
+      const ax = (fromItem.x + ws.offsetX + fromItem.width  / 2) * ws.zoom;
+      const ay = (fromItem.y + ws.offsetY + fromItem.height / 2) * ws.zoom;
+      const bx = (toItem.x   + ws.offsetX + toItem.width   / 2) * ws.zoom;
+      const by = (toItem.y   + ws.offsetY + toItem.height  / 2) * ws.zoom;
+
+      const angle = Math.atan2(by - ay, bx - ax);
+      const arrowSize = 11;
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,212,255,0.7)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 4]);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Arrowhead at target end
+      ctx.fillStyle = 'rgba(0,212,255,0.7)';
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx - arrowSize * Math.cos(angle - Math.PI / 6), by - arrowSize * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(bx - arrowSize * Math.cos(angle + Math.PI / 6), by - arrowSize * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  private drawConnectRubberBand(ctx: CanvasRenderingContext2D, ws: WorkspaceData): void {
+    if (!this.connectFirstItem) return;
+    const ix = (this.connectFirstItem.x + ws.offsetX) * ws.zoom;
+    const iy = (this.connectFirstItem.y + ws.offsetY) * ws.zoom;
+    const iw = this.connectFirstItem.width  * ws.zoom;
+    const ih = this.connectFirstItem.height * ws.zoom;
+
+    ctx.save();
+    // Highlight ring around first selected item
+    ctx.strokeStyle = '#00d4ff';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(ix - 3, iy - 3, iw + 6, ih + 6);
+    ctx.setLineDash([]);
+
+    // Rubber-band line to current mouse position
+    const fromCx = ix + iw / 2;
+    const fromCy = iy + ih / 2;
+    const toCx   = this.mouseCanvasX * ws.zoom;
+    const toCy   = this.mouseCanvasY * ws.zoom;
+
+    ctx.strokeStyle = 'rgba(0,212,255,0.45)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(fromCx, fromCy);
+    ctx.lineTo(toCx, toCy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   private handleCanvasMouseDown(e: MouseEvent): void {
     const canvas = e.target as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
@@ -961,12 +1057,22 @@ class StudyTrackerApp {
     const y = (e.clientY - rect.top) / (this.currentModule?.workspace?.zoom || 1);
     const ws = this.currentModule?.workspace;
 
-    // Right-click: context menu on items, pan on empty space
+    // Right-click: context menu on items/connections, cancel connect, or pan
     if (e.button === 2) {
-      if (this.workspaceTool === 'pointer') {
+      if (this.workspaceTool === 'pointer' || this.workspaceTool === 'connect') {
         const itemAtPos = this.getItemAtPosition(x, y, ws);
         if (itemAtPos && itemAtPos.type !== 'drawing') {
           // contextmenu event fires after mousedown and will show the menu
+          return;
+        }
+        if (ws && this.getConnectionAtPosition(x, y, ws)) {
+          // contextmenu will show connection menu
+          return;
+        }
+        if (this.workspaceTool === 'connect') {
+          // Right-click on empty space in connect mode cancels the pending selection
+          this.connectFirstItem = null;
+          this.drawWorkspace();
           return;
         }
       }
@@ -981,7 +1087,7 @@ class StudyTrackerApp {
       const itemAtPos = this.getItemAtPosition(x, y, ws);
       if (itemAtPos) {
         this.selectedItem = itemAtPos;
-        // Double-click: open viewer or edit note
+        // Double-click: open viewer or edit note/text
         if (itemAtPos.type === 'image' && e.detail === 2) {
           this.openImageLightbox(itemAtPos);
           return;
@@ -991,12 +1097,18 @@ class StudyTrackerApp {
           return;
         }
         if (itemAtPos.type === 'note' && e.detail === 2) {
-          e.preventDefault(); // prevent Electron from reverting textarea focus
-          this.isDrawing = false;  // cancel any drag that started on first click
+          e.preventDefault();
+          this.isDrawing = false;
           this.startEditingNote(itemAtPos);
           return;
         }
-        // Single click: select and prepare for drag (offset accounts for workspace pan)
+        if (itemAtPos.type === 'text' && e.detail === 2) {
+          e.preventDefault();
+          this.isDrawing = false;
+          this.startEditingText(itemAtPos);
+          return;
+        }
+        // Single click: select and prepare for drag
         this.selectedItemOffsetX = x - (itemAtPos.x + (ws?.offsetX || 0));
         this.selectedItemOffsetY = y - (itemAtPos.y + (ws?.offsetY || 0));
         this.isDrawing = true;
@@ -1004,6 +1116,12 @@ class StudyTrackerApp {
         this.selectedItem = null;
       }
       this.drawWorkspace();
+      return;
+    }
+
+    // Connect tool: handled separately (no isDrawing)
+    if (this.workspaceTool === 'connect') {
+      this.handleConnectClick(x, y);
       return;
     }
 
@@ -1016,6 +1134,9 @@ class StudyTrackerApp {
         break;
       case 'note':
         this.addNote(x, y);
+        break;
+      case 'text':
+        this.addTextItem(x, y);
         break;
       case 'image':
         this.triggerMediaUpload();
@@ -1031,6 +1152,10 @@ class StudyTrackerApp {
     const x = (e.clientX - rect.left) / this.currentModule.workspace.zoom;
     const y = (e.clientY - rect.top) / this.currentModule.workspace.zoom;
     const ws = this.currentModule.workspace;
+
+    // Track mouse position for connect tool rubber-band line
+    this.mouseCanvasX = x;
+    this.mouseCanvasY = y;
 
     // Panning
     if (this.isPanning) {
@@ -1048,6 +1173,12 @@ class StudyTrackerApp {
     if (this.isDrawing && this.workspaceTool === 'pointer' && this.selectedItem) {
       this.selectedItem.x = x - this.selectedItemOffsetX - (ws?.offsetX || 0);
       this.selectedItem.y = y - this.selectedItemOffsetY - (ws?.offsetY || 0);
+      this.drawWorkspace();
+      return;
+    }
+
+    // Connect tool rubber-band: redraw so the line follows the mouse
+    if (this.workspaceTool === 'connect' && this.connectFirstItem) {
       this.drawWorkspace();
       return;
     }
@@ -1086,18 +1217,27 @@ class StudyTrackerApp {
   }
 
   private selectTool(toolId: string): void {
-    const toolMap: { [key: string]: 'pointer' | 'note' | 'draw' | 'erase' | 'image' } = {
+    const toolMap: { [key: string]: 'pointer' | 'note' | 'draw' | 'erase' | 'image' | 'text' | 'connect' } = {
       toolPointer: 'pointer',
       toolNote: 'note',
       toolDraw: 'draw',
       toolErase: 'erase',
       toolMedia: 'image', // 'image' is the internal tool type for all media
+      toolText: 'text',
+      toolConnect: 'connect',
     };
+    const prev = this.workspaceTool;
     this.workspaceTool = toolMap[toolId] || 'pointer';
+    // Cancel any in-progress connection when switching tools
+    if (prev === 'connect' && this.workspaceTool !== 'connect') {
+      this.connectFirstItem = null;
+    }
     if (this.workspaceCanvas) {
       this.workspaceCanvas.classList.toggle('pan-cursor', this.workspaceTool === 'pointer');
       this.workspaceCanvas.classList.toggle('eraser-cursor', this.workspaceTool === 'erase');
+      this.workspaceCanvas.classList.toggle('crosshair-cursor', this.workspaceTool === 'connect');
     }
+    this.drawWorkspace();
   }
 
   private startDrawing(x: number, y: number): void {
@@ -1161,6 +1301,127 @@ class StudyTrackerApp {
     this.saveModules();
     this.pushHistory();
     this.drawWorkspace();
+  }
+
+  private addTextItem(x: number, y: number): void {
+    if (!this.currentModule?.workspace) return;
+    const ws = this.currentModule.workspace;
+    const item: WorkspaceItem = {
+      id: Math.random().toString(36),
+      type: 'text',
+      x: x - ws.offsetX,
+      y: y - ws.offsetY,
+      width: 220,
+      height: 80,
+      content: '',
+      color: '#ffffff',
+      fontSize: 16,
+      zIndex: ws.items.length,
+    };
+    ws.items.push(item);
+    this.saveModules();
+    this.pushHistory();
+    this.drawWorkspace();
+    // Open for editing immediately
+    this.startEditingText(item);
+  }
+
+  private startEditingText(item: WorkspaceItem): void {
+    if (item.type !== 'text' || !this.workspaceCanvas) return;
+    const ws = this.currentModule?.workspace;
+    if (!ws) return;
+
+    const canvasRect = this.workspaceCanvas.getBoundingClientRect();
+    const screenX = (item.x + ws.offsetX) * ws.zoom;
+    const screenY = (item.y + ws.offsetY) * ws.zoom;
+    const screenW = item.width  * ws.zoom;
+    const screenH = item.height * ws.zoom;
+    const fs = (item.fontSize || 16) * ws.zoom;
+
+    const textarea = document.createElement('textarea');
+    textarea.value = item.content || '';
+    textarea.placeholder = 'Type here…';
+    textarea.style.cssText = `
+      position: fixed;
+      left: ${canvasRect.left + screenX}px;
+      top: ${canvasRect.top + screenY}px;
+      width: ${screenW}px;
+      height: ${screenH}px;
+      background: rgba(0,0,0,0.55);
+      border: 2px solid #00d4ff;
+      padding: 4px 6px;
+      font: ${fs}px Arial, sans-serif;
+      color: ${item.color || '#ffffff'};
+      resize: none;
+      z-index: 10000;
+      box-sizing: border-box;
+      outline: none;
+      border-radius: 2px;
+      overflow: auto;
+    `;
+    document.body.appendChild(textarea);
+    requestAnimationFrame(() => { textarea.focus(); textarea.select(); });
+
+    const finish = () => {
+      if (!document.body.contains(textarea)) return;
+      item.content = textarea.value;
+      document.body.removeChild(textarea);
+      this.saveModules();
+      this.pushHistory();
+      this.drawWorkspace();
+    };
+
+    requestAnimationFrame(() => textarea.addEventListener('blur', finish));
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (document.body.contains(textarea)) document.body.removeChild(textarea);
+        this.drawWorkspace();
+      } else if (e.key === 'Enter' && e.ctrlKey) {
+        finish();
+      }
+      e.stopPropagation();
+    });
+  }
+
+  private handleConnectClick(x: number, y: number): void {
+    const ws = this.currentModule?.workspace;
+    if (!ws) return;
+
+    const item = this.getItemAtPosition(x, y, ws);
+    if (!item || item.type === 'drawing') {
+      // Clicked empty space — cancel pending selection
+      this.connectFirstItem = null;
+      this.drawWorkspace();
+      return;
+    }
+
+    if (!this.connectFirstItem) {
+      // First click — mark source item
+      this.connectFirstItem = item;
+      this.drawWorkspace();
+    } else if (this.connectFirstItem.id === item.id) {
+      // Clicked the same item — deselect
+      this.connectFirstItem = null;
+      this.drawWorkspace();
+    } else {
+      // Second click on a different item — create connection
+      if (!ws.connections) ws.connections = [];
+      const alreadyExists = ws.connections.some(
+        (c) => (c.fromId === this.connectFirstItem!.id && c.toId === item.id) ||
+                (c.fromId === item.id && c.toId === this.connectFirstItem!.id)
+      );
+      if (!alreadyExists) {
+        ws.connections.push({
+          id: Math.random().toString(36),
+          fromId: this.connectFirstItem.id,
+          toId: item.id,
+        });
+        this.saveModules();
+        this.pushHistory();
+      }
+      this.connectFirstItem = null;
+      this.drawWorkspace();
+    }
   }
 
   private triggerMediaUpload(): void {
@@ -1267,6 +1528,22 @@ class StudyTrackerApp {
         ctx.textBaseline = 'top';
         const noteLines = this.wrapText(ctx, item.content || '', w - 16);
         noteLines.forEach((line, i) => { if (yOff + i * 16 < h - 8) ctx.fillText(line, 8, yOff + i * 16); });
+        break;
+      }
+
+      case 'text': {
+        const fontSize = item.fontSize || 16;
+        ctx.font = `${fontSize}px Arial, sans-serif`;
+        ctx.fillStyle = item.color || '#ffffff';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.shadowColor = 'rgba(0,0,0,0.85)';
+        ctx.shadowBlur = 4;
+        const textLines = this.wrapText(ctx, item.content || '', w - 8);
+        textLines.forEach((line, i) => {
+          if (4 + i * (fontSize + 4) < h) ctx.fillText(line, 4, 4 + i * (fontSize + 4));
+        });
+        ctx.shadowColor = 'transparent';
         break;
       }
 
@@ -1390,6 +1667,129 @@ class StudyTrackerApp {
       }
     }
     return null;
+  }
+
+  private getConnectionAtPosition(x: number, y: number, ws: WorkspaceData): Connection | null {
+    if (!ws.connections?.length) return null;
+    const threshold = 8 / ws.zoom; // 8 screen-pixels tolerance
+    for (const conn of ws.connections) {
+      const fromItem = ws.items.find((i) => i.id === conn.fromId);
+      const toItem   = ws.items.find((i) => i.id === conn.toId);
+      if (!fromItem || !toItem) continue;
+      const ax = fromItem.x + ws.offsetX + fromItem.width  / 2;
+      const ay = fromItem.y + ws.offsetY + fromItem.height / 2;
+      const bx = toItem.x   + ws.offsetX + toItem.width   / 2;
+      const by = toItem.y   + ws.offsetY + toItem.height  / 2;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) continue;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / lenSq));
+      const px = ax + t * dx;
+      const py = ay + t * dy;
+      const dist = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
+      if (dist <= threshold) return conn;
+    }
+    return null;
+  }
+
+  private removeConnection(connId: string): void {
+    const ws = this.currentModule?.workspace;
+    if (!ws?.connections) return;
+    ws.connections = ws.connections.filter((c) => c.id !== connId);
+    this.saveModules();
+    this.pushHistory();
+    this.drawWorkspace();
+  }
+
+  private removeAllConnectionsForItem(itemId: string): void {
+    const ws = this.currentModule?.workspace;
+    if (!ws?.connections) return;
+    ws.connections = ws.connections.filter((c) => c.fromId !== itemId && c.toId !== itemId);
+    this.saveModules();
+    this.pushHistory();
+    this.drawWorkspace();
+  }
+
+  private removeConnectedStructure(startItemId: string): void {
+    const ws = this.currentModule?.workspace;
+    if (!ws?.connections) return;
+    // BFS to find all item IDs in the connected component
+    const visited = new Set<string>([startItemId]);
+    const queue = [startItemId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      ws.connections
+        .filter((c) => c.fromId === current || c.toId === current)
+        .forEach((c) => {
+          const neighbor = c.fromId === current ? c.toId : c.fromId;
+          if (!visited.has(neighbor)) { visited.add(neighbor); queue.push(neighbor); }
+        });
+    }
+    // Remove all connections where both endpoints are in the component
+    ws.connections = ws.connections.filter((c) => !visited.has(c.fromId) || !visited.has(c.toId));
+    this.saveModules();
+    this.pushHistory();
+    this.drawWorkspace();
+  }
+
+  private showConnectionContextMenu(screenX: number, screenY: number, conn: Connection): void {
+    this.hideContextMenu();
+    const ws = this.currentModule?.workspace;
+    if (!ws) return;
+
+    const menu = document.createElement('div');
+    menu.id = 'wsContextMenu';
+    menu.style.cssText = `
+      position: fixed;
+      left: ${screenX}px; top: ${screenY}px;
+      background: #1a1a2e;
+      border: 1px solid rgba(0,212,255,0.3);
+      border-radius: 6px;
+      padding: 4px 0;
+      z-index: 2147483646;
+      min-width: 170px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    `;
+
+    const makeBtn = (label: string, onClick: () => void) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = `
+        display: block; width: 100%; padding: 8px 16px;
+        background: none; border: none; color: #fff;
+        text-align: left; cursor: pointer; font-size: 13px;
+        white-space: nowrap;
+      `;
+      btn.onmouseover = () => { btn.style.background = 'rgba(0,212,255,0.12)'; };
+      btn.onmouseout  = () => { btn.style.background = 'none'; };
+      btn.onclick = () => { this.hideContextMenu(); onClick(); };
+      return btn;
+    };
+
+    menu.appendChild(makeBtn('✂  Remove connection', () => this.removeConnection(conn.id)));
+
+    const divider = document.createElement('div');
+    divider.style.cssText = 'height:1px;background:rgba(0,212,255,0.15);margin:2px 0;';
+    menu.appendChild(divider);
+
+    menu.appendChild(makeBtn('🗑  Remove whole structure', () => this.removeConnectedStructure(conn.fromId)));
+    document.body.appendChild(menu);
+
+    requestAnimationFrame(() => {
+      const r = menu.getBoundingClientRect();
+      if (r.right  > window.innerWidth)  menu.style.left = `${screenX - r.width}px`;
+      if (r.bottom > window.innerHeight) menu.style.top  = `${screenY - r.height}px`;
+    });
+
+    const closeHandler = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node)) {
+        this.hideContextMenu();
+        document.removeEventListener('mousedown', closeHandler, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeHandler, true), 0);
   }
 
   private openImageLightbox(item: WorkspaceItem): void {
@@ -1597,6 +1997,17 @@ class StudyTrackerApp {
 
     menu.appendChild(makeBtn('✏  Rename', () => this.startRenamingItem(item)));
     menu.appendChild(makeBtn('🗑  Delete', () => this.deleteWorkspaceItem(item)));
+
+    // Connection options when this item participates in any connections
+    const ws = this.currentModule?.workspace;
+    if (ws?.connections?.some((c) => c.fromId === item.id || c.toId === item.id)) {
+      const divider = document.createElement('div');
+      divider.style.cssText = 'height:1px;background:rgba(0,212,255,0.15);margin:2px 0;';
+      menu.appendChild(divider);
+      menu.appendChild(makeBtn('🔗  Remove connections', () => this.removeAllConnectionsForItem(item.id)));
+      menu.appendChild(makeBtn('🗑  Remove whole structure', () => this.removeConnectedStructure(item.id)));
+    }
+
     document.body.appendChild(menu);
 
     // Nudge menu back on-screen if it overflows
@@ -1623,7 +2034,12 @@ class StudyTrackerApp {
 
   private deleteWorkspaceItem(item: WorkspaceItem): void {
     if (!this.currentModule?.workspace) return;
-    this.currentModule.workspace.items = this.currentModule.workspace.items.filter(i => i.id !== item.id);
+    const ws = this.currentModule.workspace;
+    ws.items = ws.items.filter((i) => i.id !== item.id);
+    // Remove any connections that referenced this item
+    if (ws.connections) {
+      ws.connections = ws.connections.filter((c) => c.fromId !== item.id && c.toId !== item.id);
+    }
     if (this.selectedItem?.id === item.id) this.selectedItem = null;
     this.saveModules();
     this.pushHistory();
@@ -1675,7 +2091,7 @@ class StudyTrackerApp {
 
   private getDefaultItemName(type: WorkspaceItem['type']): string {
     const map: Partial<Record<WorkspaceItem['type'], string>> = {
-      image: 'Image', video: 'Video', pdf: 'PDF Document', note: 'Note',
+      image: 'Image', video: 'Video', pdf: 'PDF Document', note: 'Note', text: 'Text',
     };
     return map[type] ?? 'Item';
   }
