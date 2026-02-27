@@ -197,7 +197,203 @@ class StudyTrackerApp {
         </div>
       `;
       document.body.appendChild(mv);
+
+      this.buildWelcomeScreen();
     }
+  }
+
+  private buildWelcomeScreen(): void {
+    const overlay = document.createElement('div');
+    overlay.id = 'welcomeScreen';
+    overlay.style.cssText = [
+      'display:none',
+      'position:fixed',
+      'top:0','left:0','right:0','bottom:0',
+      'background:rgba(0,0,0,0.88)',
+      'z-index:999998',
+      'align-items:center',
+      'justify-content:center',
+      'padding:20px',
+    ].join(';');
+
+    overlay.innerHTML = `
+      <div style='background:#0f0f1a;border:1px solid rgba(0,212,255,0.3);border-radius:12px;width:min(820px,100%);max-height:88vh;overflow-y:auto;position:relative;box-shadow:0 0 80px rgba(0,212,255,0.12),0 20px 60px rgba(0,0,0,0.9);scrollbar-width:thin;scrollbar-color:rgba(0,212,255,0.25) transparent;'>
+
+        <!-- Close -->
+        <button id='welcomeClose' style='position:absolute;top:14px;right:14px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.25);color:#00d4ff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;z-index:1;'>✕</button>
+
+        <!-- Header -->
+        <div style='padding:40px 40px 0;text-align:center;'>
+          <div style='font-size:52px;margin-bottom:14px;'>📚</div>
+          <h1 style='color:#00d4ff;font-size:26px;font-weight:700;margin:0 0 10px;letter-spacing:-0.3px;'>Welcome to Study Tracker</h1>
+          <p style='color:rgba(255,255,255,0.55);font-size:14px;max-width:540px;margin:0 auto;line-height:1.7;'>Your all-in-one visual study workspace. Organize modules, take notes, draw diagrams, connect ideas, and manage files — all on an infinite canvas.</p>
+        </div>
+
+        <!-- Overview image slot -->
+        <div style='padding:24px 40px 0;'>
+          <img src='./welcome-overview.png' alt='Workspace overview' style='width:100%;border-radius:8px;display:block;' onerror='this.style.display="none";this.nextElementSibling.style.display="flex";'>
+          <div style='display:none;background:#111827;border:2px dashed rgba(0,212,255,0.18);border-radius:8px;height:170px;flex-direction:column;align-items:center;justify-content:center;gap:8px;'>
+            <span style='font-size:32px;'>🖼</span>
+            <span style='color:rgba(255,255,255,0.35);font-size:13px;'>Workspace overview screenshot</span>
+            <span style='color:rgba(0,212,255,0.45);font-size:11px;font-family:monospace;'>dist/renderer/welcome-overview.png</span>
+          </div>
+        </div>
+
+        <!-- Getting Started -->
+        <div style='padding:28px 40px 0;'>
+          <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 12px;'>🚀 Getting Started</h2>
+          <ol style='color:rgba(255,255,255,0.72);font-size:13px;line-height:2;padding-left:20px;margin:0;'>
+            <li>Click <strong style='color:#fff;'>+ New Module</strong> on the home screen to create a study module.</li>
+            <li>Give it a name, description, and an optional cover image, then click <strong style='color:#fff;'>Create Module</strong>.</li>
+            <li>Click a module card to open its infinite canvas workspace.</li>
+            <li>Use the toolbar at the top to add notes, drawings, media, text, and more.</li>
+            <li><strong style='color:#fff;'>Right-click drag</strong> to pan · <strong style='color:#fff;'>Scroll</strong> to zoom · <strong style='color:#fff;'>Right-click</strong> an item to rename or delete.</li>
+          </ol>
+        </div>
+
+        <!-- Tools grid -->
+        <div style='padding:28px 40px 0;'>
+          <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 14px;'>🛠 Toolbar Tools</h2>
+          <div style='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;'>
+
+            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+              <div style='font-size:20px;margin-bottom:7px;'>🖱</div>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Pointer</div>
+              <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Select, move, and resize items. Drag the blue corner handle to resize. Double-click to edit.</div>
+            </div>
+
+            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+              <div style='font-size:20px;margin-bottom:7px;'>📝</div>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Note</div>
+              <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Click the canvas to drop a sticky note. Double-click the note to edit its content.</div>
+            </div>
+
+            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+              <div style='font-size:20px;margin-bottom:7px;'>✏️</div>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Draw</div>
+              <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Freehand draw on the canvas. Adjust brush color and size from the toolbar sliders.</div>
+            </div>
+
+            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+              <div style='font-size:20px;margin-bottom:7px;'>⬜</div>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Erase</div>
+              <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Erase drawn strokes. Adjust eraser size with the slider that appears in the toolbar.</div>
+            </div>
+
+            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+              <div style='font-size:20px;margin-bottom:7px;'>📎</div>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Media</div>
+              <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Insert images, videos, or PDFs. Double-click to open a viewer. Resize images with Pointer.</div>
+            </div>
+
+            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+              <div style='font-size:20px;margin-bottom:7px;'>🔤</div>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Text</div>
+              <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Place a text label. Choose font and size from the toolbar. Double-click to edit the text.</div>
+            </div>
+
+            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+              <div style='font-size:20px;margin-bottom:7px;'>🔗</div>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Connect</div>
+              <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Click one item then another to draw an arrow. Right-click arrows to remove connections.</div>
+            </div>
+
+            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+              <div style='font-size:20px;margin-bottom:7px;'>📁</div>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Folder</div>
+              <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Drop a folder on the canvas. Double-click to open and manage files. Supports drag-and-drop.</div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Toolbar image slot -->
+        <div style='padding:18px 40px 0;'>
+          <img src='./welcome-toolbar.png' alt='Toolbar' style='width:100%;border-radius:6px;display:block;' onerror='this.style.display="none";this.nextElementSibling.style.display="flex";'>
+          <div style='display:none;background:#111827;border:2px dashed rgba(0,212,255,0.18);border-radius:6px;height:70px;flex-direction:column;align-items:center;justify-content:center;gap:5px;'>
+            <span style='color:rgba(255,255,255,0.35);font-size:12px;'>Toolbar screenshot</span>
+            <span style='color:rgba(0,212,255,0.45);font-size:11px;font-family:monospace;'>dist/renderer/welcome-toolbar.png</span>
+          </div>
+        </div>
+
+        <!-- Navigation + Shortcuts -->
+        <div style='padding:28px 40px 0;display:grid;grid-template-columns:1fr 1fr;gap:28px;'>
+          <div>
+            <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 12px;'>🗺 Canvas Navigation</h2>
+            <ul style='color:rgba(255,255,255,0.68);font-size:13px;line-height:2;padding-left:16px;margin:0;'>
+              <li><strong style='color:#fff;'>Right-click drag</strong> — pan the canvas</li>
+              <li><strong style='color:#fff;'>Scroll wheel</strong> — zoom in and out</li>
+              <li><strong style='color:#fff;'>Click item</strong> — select (blue border + resize handle)</li>
+              <li><strong style='color:#fff;'>Double-click</strong> — edit note/text or open media</li>
+              <li><strong style='color:#fff;'>Right-click item</strong> — Rename or Delete</li>
+              <li><strong style='color:#fff;'>Right-click connection</strong> — Remove or clear structure</li>
+            </ul>
+          </div>
+          <div>
+            <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 12px;'>⌨ Keyboard Shortcuts</h2>
+            <table style='width:100%;border-collapse:collapse;font-size:13px;'>
+              <tr><td style='color:rgba(0,212,255,0.9);font-family:monospace;padding:4px 14px 4px 0;white-space:nowrap;'>Ctrl + Z</td><td style='color:rgba(255,255,255,0.68);'>Undo last action</td></tr>
+              <tr><td style='color:rgba(0,212,255,0.9);font-family:monospace;padding:4px 14px 4px 0;'>Ctrl + Y</td><td style='color:rgba(255,255,255,0.68);'>Redo</td></tr>
+              <tr><td style='color:rgba(0,212,255,0.9);font-family:monospace;padding:4px 14px 4px 0;white-space:nowrap;'>Ctrl + Enter</td><td style='color:rgba(255,255,255,0.68);'>Finish editing text / note</td></tr>
+              <tr><td style='color:rgba(0,212,255,0.9);font-family:monospace;padding:4px 14px 4px 0;'>Escape</td><td style='color:rgba(255,255,255,0.68);'>Cancel editing or close</td></tr>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tips -->
+        <div style='padding:28px 40px 0;'>
+          <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 12px;'>💡 Tips</h2>
+          <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;'>
+            <div style='background:#111827;border-left:3px solid #00d4ff;border-radius:0 6px 6px 0;padding:10px 14px;'>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Naming items</div>
+              <div style='color:rgba(255,255,255,0.55);font-size:12px;line-height:1.55;'>Right-click any item and choose Rename to give it a display label shown on the tile.</div>
+            </div>
+            <div style='background:#111827;border-left:3px solid #00d4ff;border-radius:0 6px 6px 0;padding:10px 14px;'>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Live text styling</div>
+              <div style='color:rgba(255,255,255,0.55);font-size:12px;line-height:1.55;'>Select a text item with the Pointer tool — the font family and size dropdowns in the toolbar update it live.</div>
+            </div>
+            <div style='background:#111827;border-left:3px solid #00d4ff;border-radius:0 6px 6px 0;padding:10px 14px;'>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Folder drag-drop</div>
+              <div style='color:rgba(255,255,255,0.55);font-size:12px;line-height:1.55;'>Drag files from your file explorer directly onto a Folder tile on the canvas to add them instantly.</div>
+            </div>
+            <div style='background:#111827;border-left:3px solid #00d4ff;border-radius:0 6px 6px 0;padding:10px 14px;'>
+              <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Multiple connections</div>
+              <div style='color:rgba(255,255,255,0.55);font-size:12px;line-height:1.55;'>An item can have many connections. Use "Remove entire structure" to remove a whole connected group at once.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div style='padding:24px 40px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(0,212,255,0.1);margin-top:28px;gap:12px;flex-wrap:wrap;'>
+          <label style='display:flex;align-items:center;gap:10px;cursor:pointer;color:rgba(255,255,255,0.5);font-size:13px;user-select:none;'>
+            <input type='checkbox' id='welcomeNeverShow' style='width:15px;height:15px;accent-color:#00d4ff;cursor:pointer;'>
+            Don't show this again
+          </label>
+          <button id='welcomeGetStarted' style='background:#00d4ff;color:#000;border:none;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:0.3px;'>Get Started →</button>
+        </div>
+
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#welcomeClose')?.addEventListener('click', () => this.dismissWelcomeScreen());
+    overlay.querySelector('#welcomeGetStarted')?.addEventListener('click', () => this.dismissWelcomeScreen());
+
+    // Show unless the user previously dismissed it permanently
+    if (localStorage.getItem('study-tracker-welcome-dismissed') !== 'true') {
+      overlay.style.display = 'flex';
+    }
+  }
+
+  private dismissWelcomeScreen(): void {
+    const overlay = document.getElementById('welcomeScreen');
+    if (!overlay) return;
+    const cb = overlay.querySelector('#welcomeNeverShow') as HTMLInputElement;
+    if (cb?.checked) {
+      localStorage.setItem('study-tracker-welcome-dismissed', 'true');
+    }
+    overlay.style.display = 'none';
   }
 
   private loadModules(): void {
@@ -326,7 +522,7 @@ class StudyTrackerApp {
   private renderMainView(): string {
     return `
       <div class="header">
-        <h1>Study Modules</h1>
+        <h1>Workspaces</h1>
         <div class="header-buttons">
           <button class="tool-btn" id="undoBtn" title="Undo">↶ Undo</button>
           <button class="tool-btn" id="redoBtn" title="Redo">↷ Redo</button>

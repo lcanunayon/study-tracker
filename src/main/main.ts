@@ -7,6 +7,8 @@ const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false,
+    backgroundColor: '#0f0f0f',
     webPreferences: {
       preload: path.join(__dirname, '../renderer/preload.js'),
       nodeIntegration: false,
@@ -20,6 +22,11 @@ const createWindow = () => {
     : path.join(__dirname, '../renderer/index.html');
 
   mainWindow.loadFile(htmlPath);
+
+  // Show window only once the renderer has fully painted — eliminates the white flash
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
 
   if (isDev) {
     mainWindow.webContents.openDevTools();
