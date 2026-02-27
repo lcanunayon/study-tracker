@@ -231,11 +231,11 @@ class StudyTrackerApp {
 
         <!-- Overview image slot -->
         <div style='padding:24px 40px 0;'>
-          <img src='./welcome-overview.png' alt='Workspace overview' style='width:100%;border-radius:8px;display:block;' onerror='this.style.display="none";this.nextElementSibling.style.display="flex";'>
+          <img src='./assets/welcome-overview.jpg' alt='Workspace overview' style='width:100%;border-radius:8px;display:block;' onerror='this.style.display="none";this.nextElementSibling.style.display="flex";'>
           <div style='display:none;background:#111827;border:2px dashed rgba(0,212,255,0.18);border-radius:8px;height:170px;flex-direction:column;align-items:center;justify-content:center;gap:8px;'>
             <span style='font-size:32px;'>🖼</span>
             <span style='color:rgba(255,255,255,0.35);font-size:13px;'>Workspace overview screenshot</span>
-            <span style='color:rgba(0,212,255,0.45);font-size:11px;font-family:monospace;'>dist/renderer/welcome-overview.png</span>
+            <span style='color:rgba(0,212,255,0.45);font-size:11px;font-family:monospace;'>dist/renderer/assets/welcome-overview.jpg</span>
           </div>
         </div>
 
@@ -309,10 +309,10 @@ class StudyTrackerApp {
 
         <!-- Toolbar image slot -->
         <div style='padding:18px 40px 0;'>
-          <img src='./welcome-toolbar.png' alt='Toolbar' style='width:100%;border-radius:6px;display:block;' onerror='this.style.display="none";this.nextElementSibling.style.display="flex";'>
+          <img src='./assets/welcome-toolbar.jpg' alt='Toolbar' style='width:100%;border-radius:6px;display:block;' onerror='this.style.display="none";this.nextElementSibling.style.display="flex";'>
           <div style='display:none;background:#111827;border:2px dashed rgba(0,212,255,0.18);border-radius:6px;height:70px;flex-direction:column;align-items:center;justify-content:center;gap:5px;'>
             <span style='color:rgba(255,255,255,0.35);font-size:12px;'>Toolbar screenshot</span>
-            <span style='color:rgba(0,212,255,0.45);font-size:11px;font-family:monospace;'>dist/renderer/welcome-toolbar.png</span>
+            <span style='color:rgba(0,212,255,0.45);font-size:11px;font-family:monospace;'>dist/renderer/assets/welcome-toolbar.jpg</span>
           </div>
         </div>
 
