@@ -28,6 +28,7 @@ interface WorkspaceItem {
   zIndex: number;
   name?: string; // Display label shown on the tile (editable via right-click)
   fontSize?: number; // For text items
+  fontFamily?: string; // For text items
   files?: FolderFile[]; // For folder items
 }
 
@@ -72,10 +73,17 @@ class StudyTrackerApp {
   private workspaceTool: 'pointer' | 'note' | 'draw' | 'erase' | 'image' | 'text' | 'connect' | 'folder' = 'pointer';
   private drawColor = '#000000';
   private drawWidth = 2;
+  private eraseWidth = 20;
+  private defaultFontSize = 16;
+  private defaultFontFamily = 'Arial';
   private selectedItem: WorkspaceItem | null = null;
   private selectedItemOffsetX = 0;
   private selectedItemOffsetY = 0;
   private resizingItem: WorkspaceItem | null = null;
+  private resizeStartX = 0;
+  private resizeStartY = 0;
+  private resizeStartW = 0;
+  private resizeStartH = 0;
   private fullScreenImage: WorkspaceItem | null = null;
   private editingNoteId: string | null = null;
   private imageCache: Map<string, HTMLImageElement> = new Map();
@@ -410,6 +418,40 @@ class StudyTrackerApp {
             <button class="tool-btn" id="toolConnect" title="Connect Items">🔗</button>
             <button class="tool-btn" id="toolFolder" title="Create Folder">📁</button>
             <input type="color" id="drawColor" value="#000000" title="Draw Color">
+            <div id="toolOptions" style="display:none;align-items:center;gap:6px;border-left:1px solid rgba(0,212,255,0.2);padding-left:8px;margin-left:2px;">
+              <div id="optBrushSize" style="display:none;align-items:center;gap:5px;">
+                <span style="color:rgba(255,255,255,0.5);font-size:11px;">Brush</span>
+                <input type="range" id="brushSizeSlider" min="1" max="50" value="2" style="width:72px;accent-color:#00d4ff;cursor:pointer;vertical-align:middle;">
+                <span id="brushSizeVal" style="color:#00d4ff;font-size:11px;min-width:20px;">2</span>
+              </div>
+              <div id="optEraseSize" style="display:none;align-items:center;gap:5px;">
+                <span style="color:rgba(255,255,255,0.5);font-size:11px;">Eraser</span>
+                <input type="range" id="eraseSizeSlider" min="5" max="100" value="20" style="width:72px;accent-color:#00d4ff;cursor:pointer;vertical-align:middle;">
+                <span id="eraseSizeVal" style="color:#00d4ff;font-size:11px;min-width:26px;">20</span>
+              </div>
+              <div id="optTextStyle" style="display:none;align-items:center;gap:5px;">
+                <span style="color:rgba(255,255,255,0.5);font-size:11px;">Size</span>
+                <select id="textSizeSelect" style="background:#1a1a2e;border:1px solid rgba(0,212,255,0.3);color:#fff;border-radius:4px;padding:2px 5px;font-size:12px;cursor:pointer;outline:none;">
+                  <option value="10" style="background:#1a1a2e;color:#fff;">10</option><option value="12" style="background:#1a1a2e;color:#fff;">12</option><option value="14" style="background:#1a1a2e;color:#fff;">14</option>
+                  <option value="16" selected style="background:#1a1a2e;color:#fff;">16</option><option value="18" style="background:#1a1a2e;color:#fff;">18</option><option value="20" style="background:#1a1a2e;color:#fff;">20</option>
+                  <option value="24" style="background:#1a1a2e;color:#fff;">24</option><option value="28" style="background:#1a1a2e;color:#fff;">28</option><option value="32" style="background:#1a1a2e;color:#fff;">32</option>
+                  <option value="40" style="background:#1a1a2e;color:#fff;">40</option><option value="48" style="background:#1a1a2e;color:#fff;">48</option><option value="64" style="background:#1a1a2e;color:#fff;">64</option>
+                </select>
+                <span style="color:rgba(255,255,255,0.5);font-size:11px;margin-left:4px;">Font</span>
+                <select id="textFontSelect" style="background:#1a1a2e;border:1px solid rgba(0,212,255,0.3);color:#fff;border-radius:4px;padding:2px 5px;font-size:12px;cursor:pointer;outline:none;max-width:130px;">
+                  <option value="Arial" style="background:#1a1a2e;color:#fff;">Arial</option>
+                  <option value="Georgia" style="background:#1a1a2e;color:#fff;">Georgia</option>
+                  <option value="Times New Roman" style="background:#1a1a2e;color:#fff;">Times New Roman</option>
+                  <option value="Verdana" style="background:#1a1a2e;color:#fff;">Verdana</option>
+                  <option value="Courier New" style="background:#1a1a2e;color:#fff;">Courier New</option>
+                  <option value="Impact" style="background:#1a1a2e;color:#fff;">Impact</option>
+                  <option value="Trebuchet MS" style="background:#1a1a2e;color:#fff;">Trebuchet MS</option>
+                  <option value="Comic Sans MS" style="background:#1a1a2e;color:#fff;">Comic Sans</option>
+                  <option value="Palatino" style="background:#1a1a2e;color:#fff;">Palatino</option>
+                  <option value="Garamond" style="background:#1a1a2e;color:#fff;">Garamond</option>
+                </select>
+              </div>
+            </div>
             <button class="tool-btn" id="clearWorkspaceBtn" title="Clear Workspace">🗑 Clear</button>
             <div style="flex: 1;"></div>
             <button class="tool-btn" id="zoomIn" title="Zoom In">🔍+</button>
@@ -837,6 +879,56 @@ class StudyTrackerApp {
       });
     }
 
+    // Brush size slider
+    const brushSlider = canvas.parentElement?.querySelector('#brushSizeSlider') as HTMLInputElement;
+    const brushVal    = canvas.parentElement?.querySelector('#brushSizeVal')    as HTMLElement;
+    if (brushSlider) {
+      brushSlider.value = String(this.drawWidth);
+      brushSlider.addEventListener('input', () => {
+        this.drawWidth = parseInt(brushSlider.value);
+        if (brushVal) brushVal.textContent = String(this.drawWidth);
+      });
+    }
+
+    // Erase size slider
+    const eraseSlider = canvas.parentElement?.querySelector('#eraseSizeSlider') as HTMLInputElement;
+    const eraseVal    = canvas.parentElement?.querySelector('#eraseSizeVal')    as HTMLElement;
+    if (eraseSlider) {
+      eraseSlider.value = String(this.eraseWidth);
+      eraseSlider.addEventListener('input', () => {
+        this.eraseWidth = parseInt(eraseSlider.value);
+        if (eraseVal) eraseVal.textContent = String(this.eraseWidth);
+      });
+    }
+
+    // Text size select
+    const textSizeSel = canvas.parentElement?.querySelector('#textSizeSelect') as HTMLSelectElement;
+    if (textSizeSel) {
+      textSizeSel.value = String(this.defaultFontSize);
+      textSizeSel.addEventListener('change', () => {
+        this.defaultFontSize = parseInt(textSizeSel.value);
+        if (this.workspaceTool === 'pointer' && this.selectedItem?.type === 'text') {
+          this.selectedItem.fontSize = this.defaultFontSize;
+          this.saveModules();
+          this.drawWorkspace();
+        }
+      });
+    }
+
+    // Text font select
+    const textFontSel = canvas.parentElement?.querySelector('#textFontSelect') as HTMLSelectElement;
+    if (textFontSel) {
+      textFontSel.value = this.defaultFontFamily;
+      textFontSel.addEventListener('change', () => {
+        this.defaultFontFamily = textFontSel.value;
+        if (this.workspaceTool === 'pointer' && this.selectedItem?.type === 'text') {
+          this.selectedItem.fontFamily = this.defaultFontFamily;
+          this.saveModules();
+          this.drawWorkspace();
+        }
+      });
+    }
+
     // Zoom buttons
     const zoomInBtn = canvas.parentElement?.querySelector('#zoomIn');
     const zoomOutBtn = canvas.parentElement?.querySelector('#zoomOut');
@@ -1133,9 +1225,26 @@ class StudyTrackerApp {
 
     // Pointer tool: select/move items
     if (this.workspaceTool === 'pointer') {
+      // Check resize handle on selected item first
+      if (this.selectedItem && ws) {
+        const hitSize = 12 / ws.zoom;
+        const handleX = this.selectedItem.x + ws.offsetX + this.selectedItem.width;
+        const handleY = this.selectedItem.y + ws.offsetY + this.selectedItem.height;
+        if (x >= handleX - hitSize && x <= handleX + 4 / ws.zoom &&
+            y >= handleY - hitSize && y <= handleY + 4 / ws.zoom) {
+          this.resizingItem   = this.selectedItem;
+          this.resizeStartX   = x;
+          this.resizeStartY   = y;
+          this.resizeStartW   = this.selectedItem.width;
+          this.resizeStartH   = this.selectedItem.height;
+          return;
+        }
+      }
+
       const itemAtPos = this.getItemAtPosition(x, y, ws);
       if (itemAtPos) {
         this.selectedItem = itemAtPos;
+        this.updateToolOptions();
         // Double-click: open viewer or edit note/text
         if (itemAtPos.type === 'image' && e.detail === 2) {
           this.openImageLightbox(itemAtPos);
@@ -1169,6 +1278,7 @@ class StudyTrackerApp {
         this.isDrawing = true;
       } else {
         this.selectedItem = null;
+        this.updateToolOptions();
       }
       this.drawWorkspace();
       return;
@@ -1227,12 +1337,35 @@ class StudyTrackerApp {
       return;
     }
 
+    // Resize selected item
+    if (this.resizingItem) {
+      const dx = x - this.resizeStartX;
+      const dy = y - this.resizeStartY;
+      this.resizingItem.width  = Math.max(40, this.resizeStartW + dx);
+      this.resizingItem.height = Math.max(40, this.resizeStartH + dy);
+      this.drawWorkspace();
+      return;
+    }
+
     // Move selected item with pointer tool
     if (this.isDrawing && this.workspaceTool === 'pointer' && this.selectedItem) {
       this.selectedItem.x = x - this.selectedItemOffsetX - (ws?.offsetX || 0);
       this.selectedItem.y = y - this.selectedItemOffsetY - (ws?.offsetY || 0);
       this.drawWorkspace();
       return;
+    }
+
+    // Cursor: show resize cursor when hovering over selected item's handle
+    if (this.workspaceTool === 'pointer' && this.selectedItem && !this.isDrawing) {
+      const hitSize = 12 / ws.zoom;
+      const handleX = this.selectedItem.x + ws.offsetX + this.selectedItem.width;
+      const handleY = this.selectedItem.y + ws.offsetY + this.selectedItem.height;
+      if (x >= handleX - hitSize && x <= handleX + 4 / ws.zoom &&
+          y >= handleY - hitSize && y <= handleY + 4 / ws.zoom) {
+        canvas.style.cursor = 'nwse-resize';
+      } else {
+        canvas.style.cursor = '';
+      }
     }
 
     // Connect tool rubber-band: redraw so the line follows the mouse
@@ -1251,6 +1384,8 @@ class StudyTrackerApp {
     this.isDrawing = false;
     this.isPanning = false;
     this.currentStroke = null;
+    this.resizingItem = null;
+    if (this.workspaceCanvas) this.workspaceCanvas.style.cursor = '';
     // Save state after drawing/moving/resizing operations
     if (this.currentModule) {
       this.saveModules();
@@ -1295,8 +1430,38 @@ class StudyTrackerApp {
       this.workspaceCanvas.classList.toggle('pan-cursor', this.workspaceTool === 'pointer');
       this.workspaceCanvas.classList.toggle('eraser-cursor', this.workspaceTool === 'erase');
       this.workspaceCanvas.classList.toggle('crosshair-cursor', this.workspaceTool === 'connect');
+      this.workspaceCanvas.style.cursor = '';
     }
+    this.updateToolOptions();
     this.drawWorkspace();
+  }
+
+  private updateToolOptions(): void {
+    const wrap    = document.getElementById('toolOptions') as HTMLElement;
+    const optBrush = document.getElementById('optBrushSize') as HTMLElement;
+    const optErase = document.getElementById('optEraseSize') as HTMLElement;
+    const optText  = document.getElementById('optTextStyle') as HTMLElement;
+    if (!wrap || !optBrush || !optErase || !optText) return;
+
+    const showText  = this.workspaceTool === 'text' ||
+                      (this.workspaceTool === 'pointer' && this.selectedItem?.type === 'text');
+    const showBrush = this.workspaceTool === 'draw';
+    const showErase = this.workspaceTool === 'erase';
+    const showAny   = showText || showBrush || showErase;
+
+    wrap.style.display     = showAny   ? 'flex' : 'none';
+    optBrush.style.display = showBrush ? 'flex' : 'none';
+    optErase.style.display = showErase ? 'flex' : 'none';
+    optText.style.display  = showText  ? 'flex' : 'none';
+
+    // Sync controls with current item (pointer+text selected) or global defaults
+    if (showText) {
+      const selSz  = document.getElementById('textSizeSelect')  as HTMLSelectElement;
+      const selFnt = document.getElementById('textFontSelect')   as HTMLSelectElement;
+      const item   = (this.workspaceTool === 'pointer') ? this.selectedItem : null;
+      if (selSz)  selSz.value  = String(item?.fontSize   ?? this.defaultFontSize);
+      if (selFnt) selFnt.value = item?.fontFamily ?? this.defaultFontFamily;
+    }
   }
 
   private startDrawing(x: number, y: number): void {
@@ -1306,7 +1471,7 @@ class StudyTrackerApp {
     const stroke: DrawingStroke = {
       points: [{ x: x - ws.offsetX, y: y - ws.offsetY }],
       color: this.drawColor,
-      width: this.workspaceTool === 'erase' ? 15 : this.drawWidth,
+      width: this.workspaceTool === 'erase' ? this.eraseWidth : this.drawWidth,
     };
 
     // Mark as eraser stroke if using erase tool
@@ -1374,7 +1539,8 @@ class StudyTrackerApp {
       height: 80,
       content: '',
       color: '#ffffff',
-      fontSize: 16,
+      fontSize: this.defaultFontSize,
+      fontFamily: this.defaultFontFamily,
       zIndex: ws.items.length,
     };
     ws.items.push(item);
@@ -1409,7 +1575,7 @@ class StudyTrackerApp {
       background: rgba(0,0,0,0.55);
       border: 2px solid #00d4ff;
       padding: 4px 6px;
-      font: ${fs}px Arial, sans-serif;
+      font: ${fs}px ${item.fontFamily || 'Arial'}, sans-serif;
       color: ${item.color || '#ffffff'};
       resize: none;
       z-index: 10000;
@@ -1592,7 +1758,7 @@ class StudyTrackerApp {
 
       case 'text': {
         const fontSize = item.fontSize || 16;
-        ctx.font = `${fontSize}px Arial, sans-serif`;
+        ctx.font = `${fontSize}px ${item.fontFamily || 'Arial'}, sans-serif`;
         ctx.fillStyle = item.color || '#ffffff';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
