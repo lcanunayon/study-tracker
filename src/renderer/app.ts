@@ -5,6 +5,7 @@ interface Module {
   image?: string; // Base64 or image path
   createdAt: number;
   workspace?: WorkspaceData;
+  studyTime?: number; // total seconds studied, persisted across sessions
 }
 
 interface FolderFile {
@@ -93,6 +94,14 @@ class StudyTrackerApp {
   private mouseCanvasY = 0;
   private folderPopupItemId: string | null = null;
   private dragOverFolderId: string | null = null;
+
+  // Timer properties
+  private timerMode: 'stopwatch' | 'pomodoro' = 'stopwatch';
+  private timerRunning = false;
+  private timerInterval: ReturnType<typeof setInterval> | null = null;
+  private stopwatchSeconds = 0;
+  private pomodoroPhase: 'work' | 'break' = 'work';
+  private pomodoroSecondsLeft = 25 * 60;
 
   constructor() {
     this.loadModules();
@@ -600,6 +609,24 @@ class StudyTrackerApp {
             }
             <div class="detail-description">${this.escapeHtml(this.currentModule.description)}</div>
           </div>
+          <div class="timer-section">
+            <div class="timer-mode-tabs">
+              <button class="timer-tab${this.timerMode === 'stopwatch' ? ' active' : ''}" id="timerTabStopwatch">Stopwatch</button>
+              <button class="timer-tab${this.timerMode === 'pomodoro' ? ' active' : ''}" id="timerTabPomodoro">Pomodoro</button>
+            </div>
+            <div class="timer-body">
+              ${this.timerMode === 'pomodoro' ? `<div class="timer-phase-label ${this.pomodoroPhase === 'work' ? 'phase-work' : 'phase-break'}" id="timerPhaseLabel">${this.pomodoroPhase === 'work' ? '🍅 Work' : '☕ Break'}</div>` : ''}
+              <div class="timer-display" id="timerDisplay">${this.timerMode === 'stopwatch' ? this.formatStopwatch(this.stopwatchSeconds) : this.formatPomodoro(this.pomodoroSecondsLeft)}</div>
+              <div class="timer-total-row">
+                <span class="timer-total-label">Total studied</span>
+                <span class="timer-total-value" id="timerTotalDisplay">${this.formatTotalTime(this.currentModule.studyTime ?? 0)}</span>
+              </div>
+              <div class="timer-controls">
+                <button class="timer-btn timer-start-pause" id="timerStartPause">${this.timerRunning ? '⏸ Pause' : '▶ Start'}</button>
+                <button class="timer-btn timer-reset-btn" id="timerReset">↺ Reset</button>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="workspace-container">
           <div class="workspace-toolbar">
@@ -725,6 +752,23 @@ class StudyTrackerApp {
 
       // Keyboard shortcuts
       document.addEventListener('keydown', this.globalKeyHandler);
+
+      // Toolbar scroll-on-hover
+      const toolbar = document.querySelector('.workspace-toolbar') as HTMLElement | null;
+      if (toolbar) {
+        toolbar.addEventListener('mouseenter', () => toolbar.classList.add('scrollbar-visible'));
+        toolbar.addEventListener('mouseleave', () => toolbar.classList.remove('scrollbar-visible'));
+      }
+
+      // Timer controls
+      const timerTabSw = document.getElementById('timerTabStopwatch');
+      const timerTabPm = document.getElementById('timerTabPomodoro');
+      const timerStartPause = document.getElementById('timerStartPause');
+      const timerReset = document.getElementById('timerReset');
+      if (timerTabSw) timerTabSw.addEventListener('click', () => this.switchTimerMode('stopwatch'));
+      if (timerTabPm) timerTabPm.addEventListener('click', () => this.switchTimerMode('pomodoro'));
+      if (timerStartPause) timerStartPause.addEventListener('click', () => this.timerRunning ? this.pauseTimer() : this.startTimer());
+      if (timerReset) timerReset.addEventListener('click', () => this.resetTimer());
     }
   }
 
@@ -924,6 +968,7 @@ class StudyTrackerApp {
 
   private closeDetailView(): void {
     this.closeFolderPopup();
+    this.pauseTimer();
     this.isDetailView = false;
     this.currentModule = null;
     this.render();
@@ -2941,6 +2986,151 @@ class StudyTrackerApp {
     if (closeBtn) closeBtn.onclick = () => this.closeMediaViewer();
     const bdHandler = (e: MouseEvent) => { if (e.target === viewer) { this.closeMediaViewer(); viewer.removeEventListener('click', bdHandler); } };
     viewer.addEventListener('click', bdHandler);
+  }
+
+  // ── Timer ────────────────────────────────────────────────────────────────
+
+  private formatStopwatch(seconds: number): string {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+
+  private formatPomodoro(seconds: number): string {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+
+  private formatTotalTime(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m ${s}s`;
+  }
+
+  private startTimer(): void {
+    if (this.timerRunning) return;
+    this.timerRunning = true;
+    this.updateTimerStartPauseBtn();
+    this.timerInterval = setInterval(() => this.timerTick(), 1000);
+  }
+
+  private pauseTimer(): void {
+    if (!this.timerRunning) return;
+    this.timerRunning = false;
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+    this.updateTimerStartPauseBtn();
+    if (this.currentModule) this.saveModules();
+  }
+
+  private resetTimer(): void {
+    this.pauseTimer();
+    this.stopwatchSeconds = 0;
+    this.pomodoroPhase = 'work';
+    this.pomodoroSecondsLeft = 25 * 60;
+    if (this.currentModule) {
+      this.currentModule.studyTime = 0;
+      this.saveModules();
+    }
+    this.updateTimerDisplay();
+    this.updateTimerTotalDisplay();
+    const phaseLabel = document.getElementById('timerPhaseLabel');
+    if (phaseLabel) {
+      phaseLabel.textContent = '🍅 Work';
+      phaseLabel.className = 'timer-phase-label phase-work';
+    }
+  }
+
+  private timerTick(): void {
+    if (this.timerMode === 'stopwatch') {
+      this.stopwatchSeconds++;
+      if (this.currentModule) {
+        this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + 1;
+        if (this.stopwatchSeconds % 10 === 0) this.saveModules();
+      }
+    } else {
+      this.pomodoroSecondsLeft--;
+      if (this.pomodoroPhase === 'work' && this.currentModule) {
+        this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + 1;
+        if (this.pomodoroSecondsLeft % 10 === 0) this.saveModules();
+      }
+      if (this.pomodoroSecondsLeft <= 0) {
+        this.playBeep();
+        if (this.pomodoroPhase === 'work') {
+          this.pomodoroPhase = 'break';
+          this.pomodoroSecondsLeft = 5 * 60;
+        } else {
+          this.pomodoroPhase = 'work';
+          this.pomodoroSecondsLeft = 25 * 60;
+        }
+        this.updatePomodoroPhaseLabel();
+      }
+    }
+    this.updateTimerDisplay();
+    this.updateTimerTotalDisplay();
+  }
+
+  private updateTimerDisplay(): void {
+    const display = document.getElementById('timerDisplay');
+    if (!display) return;
+    display.textContent = this.timerMode === 'stopwatch'
+      ? this.formatStopwatch(this.stopwatchSeconds)
+      : this.formatPomodoro(this.pomodoroSecondsLeft);
+  }
+
+  private updateTimerTotalDisplay(): void {
+    const el = document.getElementById('timerTotalDisplay');
+    if (el && this.currentModule) {
+      el.textContent = this.formatTotalTime(this.currentModule.studyTime ?? 0);
+    }
+  }
+
+  private updateTimerStartPauseBtn(): void {
+    const btn = document.getElementById('timerStartPause');
+    if (btn) btn.textContent = this.timerRunning ? '⏸ Pause' : '▶ Start';
+  }
+
+  private updatePomodoroPhaseLabel(): void {
+    const label = document.getElementById('timerPhaseLabel');
+    if (label) {
+      label.textContent = this.pomodoroPhase === 'work' ? '🍅 Work' : '☕ Break';
+      label.className = `timer-phase-label ${this.pomodoroPhase === 'work' ? 'phase-work' : 'phase-break'}`;
+    }
+  }
+
+  private switchTimerMode(mode: 'stopwatch' | 'pomodoro'): void {
+    if (this.timerMode === mode) return;
+    this.pauseTimer();
+    this.timerMode = mode;
+    this.stopwatchSeconds = 0;
+    this.pomodoroPhase = 'work';
+    this.pomodoroSecondsLeft = 25 * 60;
+    this.render();
+  }
+
+  private playBeep(): void {
+    try {
+      const ctx = new AudioContext();
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      oscillator.frequency.value = 880;
+      oscillator.type = 'sine';
+      gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + 0.8);
+    } catch (_e) {
+      // Audio not available
+    }
   }
 
   private getFileEmoji(mimeType: string): string {

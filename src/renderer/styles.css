@@ -305,8 +305,8 @@ body {
   flex: 0 0 45%;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
   border-right: 1px solid rgba(0, 212, 255, 0.2);
+  overflow: hidden;
 }
 
 .workspace-container {
@@ -372,6 +372,136 @@ body {
   line-height: 1.8;
   color: rgba(255, 255, 255, 0.8);
   max-width: 600px;
+}
+
+/* Timer Section */
+.timer-section {
+  flex-shrink: 0;
+  border-top: 1px solid rgba(0, 212, 255, 0.2);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 18px 24px 20px;
+}
+
+.timer-mode-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.timer-tab {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  color: rgba(255, 255, 255, 0.5);
+  padding: 6px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.timer-tab:hover {
+  background: rgba(0, 212, 255, 0.1);
+  color: #00d4ff;
+}
+
+.timer-tab.active {
+  background: rgba(0, 212, 255, 0.15);
+  border-color: rgba(0, 212, 255, 0.6);
+  color: #00d4ff;
+  font-weight: 600;
+}
+
+.timer-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.timer-phase-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 3px 12px;
+  border-radius: 20px;
+}
+
+.timer-phase-label.phase-work {
+  background: rgba(255, 80, 80, 0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 80, 80, 0.3);
+}
+
+.timer-phase-label.phase-break {
+  background: rgba(0, 212, 100, 0.15);
+  color: #00d46e;
+  border: 1px solid rgba(0, 212, 100, 0.3);
+}
+
+.timer-display {
+  font-size: 42px;
+  font-weight: 700;
+  color: #00d4ff;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 2px;
+  text-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+  line-height: 1;
+}
+
+.timer-total-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.timer-total-label {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.timer-total-value {
+  color: #00d4ff;
+  font-weight: 600;
+}
+
+.timer-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.timer-btn {
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  color: #00d4ff;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.timer-btn:hover {
+  background: rgba(0, 212, 255, 0.2);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+}
+
+.timer-start-pause {
+  min-width: 100px;
+}
+
+.timer-reset-btn {
+  background: rgba(255, 80, 80, 0.08);
+  border-color: rgba(255, 80, 80, 0.3);
+  color: #ff6b6b;
+}
+
+.timer-reset-btn:hover {
+  background: rgba(255, 80, 80, 0.18);
+  box-shadow: 0 0 10px rgba(255, 80, 80, 0.25);
 }
 
 /* Modal */
@@ -565,6 +695,36 @@ body {
   padding: 12px 16px;
   background: rgba(0, 0, 0, 0.6);
   border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+  overflow-x: auto;
+  overflow-y: visible;
+  scroll-behavior: smooth;
+}
+
+/* Scrollbar hidden by default, revealed via .scrollbar-visible class on hover (JS-toggled) */
+.workspace-toolbar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.workspace-toolbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.workspace-toolbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.workspace-toolbar.scrollbar-visible::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.workspace-toolbar.scrollbar-visible::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.5);
+}
+
+.workspace-toolbar.scrollbar-visible::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.85);
 }
 
 .tool-btn {
@@ -577,6 +737,7 @@ body {
   font-size: 14px;
   transition: all 0.2s ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tool-btn:hover {
@@ -597,6 +758,7 @@ body {
   border: 1px solid rgba(0, 212, 255, 0.3);
   border-radius: 6px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .workspace-canvas {
