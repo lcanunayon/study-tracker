@@ -1928,13 +1928,18 @@ class StudyTrackerApp {
     // Use filename (without extension) as the default display name
     const name = fileName ? fileName.replace(/\.[^.]+$/, '') : undefined;
 
+    const w = 200;
+    const h = type === 'video' ? 140 : 200;
+    // Place centred on the last known canvas cursor position (zoom-divided coords)
+    const cx = this.mouseCanvasX || (this.workspaceCanvas ? this.workspaceCanvas.width / ws.zoom / 2 : 300);
+    const cy = this.mouseCanvasY || (this.workspaceCanvas ? this.workspaceCanvas.height / ws.zoom / 2 : 200);
     const item: WorkspaceItem = {
       id: Math.random().toString(36),
       type,
-      x: 100,
-      y: 100,
-      width: 200,
-      height: type === 'video' ? 140 : 200,
+      x: cx - ws.offsetX - w / 2,
+      y: cy - ws.offsetY - h / 2,
+      width: w,
+      height: h,
       content: dataURL,
       rotation: 0,
       zIndex: ws.items.length,
