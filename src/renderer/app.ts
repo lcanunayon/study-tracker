@@ -99,9 +99,15 @@ class StudyTrackerApp {
   private timerMode: 'stopwatch' | 'pomodoro' = 'stopwatch';
   private timerRunning = false;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
+  // Stopwatch — base holds accumulated seconds before the last Start press
   private stopwatchSeconds = 0;
+  private swBaseSeconds = 0;
+  private swStartTs = 0; // Date.now() when last started
+  // Pomodoro
   private pomodoroPhase: 'work' | 'break' = 'work';
   private pomodoroSecondsLeft = 25 * 60;
+  private pomodoroPhaseStartTs = 0; // Date.now() when the current phase began
+  private pomodoroLastWorkSec = 0;  // work-seconds already credited this phase (for delta)
 
   constructor() {
     this.loadModules();
@@ -110,6 +116,12 @@ class StudyTrackerApp {
     this.initializeHTML();
     this.render();
     this.attachEventListeners();
+    // Immediately catch up whenever the window comes back from minimised / background
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && this.timerRunning) {
+        this.timerTick();
+      }
+    });
   }
 
   private initializeHTML(): void {
@@ -608,28 +620,29 @@ class StudyTrackerApp {
                 : ''
             }
             <div class="detail-description">${this.escapeHtml(this.currentModule.description)}</div>
-          </div>
-          <div class="timer-section">
-            <div class="timer-mode-tabs">
-              <button class="timer-tab${this.timerMode === 'stopwatch' ? ' active' : ''}" id="timerTabStopwatch">Stopwatch</button>
-              <button class="timer-tab${this.timerMode === 'pomodoro' ? ' active' : ''}" id="timerTabPomodoro">Pomodoro</button>
-            </div>
-            <div class="timer-body">
-              ${this.timerMode === 'pomodoro' ? `<div class="timer-phase-label ${this.pomodoroPhase === 'work' ? 'phase-work' : 'phase-break'}" id="timerPhaseLabel">${this.pomodoroPhase === 'work' ? '🍅 Work' : '☕ Break'}</div>` : ''}
-              <div class="timer-display" id="timerDisplay">${this.timerMode === 'stopwatch' ? this.formatStopwatch(this.stopwatchSeconds) : this.formatPomodoro(this.pomodoroSecondsLeft)}</div>
-              <div class="timer-total-row">
-                <span class="timer-total-label">Total studied</span>
-                <span class="timer-total-value" id="timerTotalDisplay">${this.formatTotalTime(this.currentModule.studyTime ?? 0)}</span>
+            <div class="timer-section">
+              <div class="timer-mode-tabs">
+                <button class="timer-tab${this.timerMode === 'stopwatch' ? ' active' : ''}" id="timerTabStopwatch">Stopwatch</button>
+                <button class="timer-tab${this.timerMode === 'pomodoro' ? ' active' : ''}" id="timerTabPomodoro">Pomodoro</button>
               </div>
-              <div class="timer-controls">
-                <button class="timer-btn timer-start-pause" id="timerStartPause">${this.timerRunning ? '⏸ Pause' : '▶ Start'}</button>
-                <button class="timer-btn timer-reset-btn" id="timerReset">↺ Reset</button>
+              <div class="timer-body">
+                ${this.timerMode === 'pomodoro' ? `<div class="timer-phase-label ${this.pomodoroPhase === 'work' ? 'phase-work' : 'phase-break'}" id="timerPhaseLabel">${this.pomodoroPhase === 'work' ? '🍅 Work' : '☕ Break'}</div>` : ''}
+                <div class="timer-display" id="timerDisplay">${this.timerMode === 'stopwatch' ? this.formatStopwatch(this.stopwatchSeconds) : this.formatPomodoro(this.pomodoroSecondsLeft)}</div>
+                <div class="timer-total-row">
+                  <span class="timer-total-label">Total studied</span>
+                  <span class="timer-total-value" id="timerTotalDisplay">${this.formatTotalTime(this.currentModule.studyTime ?? 0)}</span>
+                </div>
+                <div class="timer-controls">
+                  <button class="timer-btn timer-start-pause" id="timerStartPause">${this.timerRunning ? '⏸ Pause' : '▶ Start'}</button>
+                  <button class="timer-btn timer-reset-btn" id="timerReset">↺ Reset</button>
+                </div>
               </div>
             </div>
           </div>
         </div>
         <div class="workspace-container">
           <div class="workspace-toolbar">
+            <div class="workspace-toolbar-inner">
             <button class="tool-btn" id="undoWorkspaceBtn" title="Undo">↶</button>
             <button class="tool-btn" id="redoWorkspaceBtn" title="Redo">↷</button>
             <button class="tool-btn" id="toolPointer" title="Select">➡</button>
@@ -676,10 +689,11 @@ class StudyTrackerApp {
               </div>
             </div>
             <button class="tool-btn" id="clearWorkspaceBtn" title="Clear Workspace">🗑 Clear</button>
-            <div style="flex: 1;"></div>
+            <div class="toolbar-spacer"></div>
             <button class="tool-btn" id="zoomIn" title="Zoom In">🔍+</button>
             <button class="tool-btn" id="zoomOut" title="Zoom Out">🔍-</button>
             <span id="zoomLevel" style="color: #00d4ff; font-size: 12px; margin: 0 10px;">100%</span>
+            </div>
           </div>
           <canvas id="workspaceCanvas" class="workspace-canvas"></canvas>
         </div>
@@ -752,13 +766,6 @@ class StudyTrackerApp {
 
       // Keyboard shortcuts
       document.addEventListener('keydown', this.globalKeyHandler);
-
-      // Toolbar scroll-on-hover
-      const toolbar = document.querySelector('.workspace-toolbar') as HTMLElement | null;
-      if (toolbar) {
-        toolbar.addEventListener('mouseenter', () => toolbar.classList.add('scrollbar-visible'));
-        toolbar.addEventListener('mouseleave', () => toolbar.classList.remove('scrollbar-visible'));
-      }
 
       // Timer controls
       const timerTabSw = document.getElementById('timerTabStopwatch');
@@ -3014,18 +3021,31 @@ class StudyTrackerApp {
 
   private startTimer(): void {
     if (this.timerRunning) return;
+    const now = Date.now();
     this.timerRunning = true;
+    this.swStartTs = now;
+    if (this.timerMode === 'pomodoro') {
+      // Reconstruct phase start so that the current secondsLeft stays accurate
+      const phaseDur = this.pomodoroPhase === 'work' ? 25 * 60 : 5 * 60;
+      this.pomodoroPhaseStartTs = now - (phaseDur - this.pomodoroSecondsLeft) * 1000;
+      // Seconds already credited to studyTime in this phase before this resume
+      this.pomodoroLastWorkSec = this.pomodoroPhase === 'work' ? phaseDur - this.pomodoroSecondsLeft : 0;
+    }
     this.updateTimerStartPauseBtn();
-    this.timerInterval = setInterval(() => this.timerTick(), 1000);
+    // Poll at 500 ms so the display catches up quickly after un-minimising
+    this.timerInterval = setInterval(() => this.timerTick(), 500);
   }
 
   private pauseTimer(): void {
     if (!this.timerRunning) return;
+    this.flushTimerState(); // sync state from wall-clock before stopping
     this.timerRunning = false;
     if (this.timerInterval) {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
     }
+    // Persist base so the next Start resumes from here
+    this.swBaseSeconds = this.stopwatchSeconds;
     this.updateTimerStartPauseBtn();
     if (this.currentModule) this.saveModules();
   }
@@ -3033,8 +3053,10 @@ class StudyTrackerApp {
   private resetTimer(): void {
     this.pauseTimer();
     this.stopwatchSeconds = 0;
+    this.swBaseSeconds = 0;
     this.pomodoroPhase = 'work';
     this.pomodoroSecondsLeft = 25 * 60;
+    this.pomodoroLastWorkSec = 0;
     if (this.currentModule) {
       this.currentModule.studyTime = 0;
       this.saveModules();
@@ -3048,33 +3070,61 @@ class StudyTrackerApp {
     }
   }
 
-  private timerTick(): void {
+  // Recompute all timer state from wall-clock timestamps.
+  // Called every 500 ms and immediately when the page becomes visible again.
+  private flushTimerState(): void {
+    const now = Date.now();
+
     if (this.timerMode === 'stopwatch') {
-      this.stopwatchSeconds++;
-      if (this.currentModule) {
-        this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + 1;
-        if (this.stopwatchSeconds % 10 === 0) this.saveModules();
+      const elapsed = Math.floor((now - this.swStartTs) / 1000);
+      const newSec = this.swBaseSeconds + elapsed;
+      const delta = newSec - this.stopwatchSeconds;
+      this.stopwatchSeconds = newSec;
+      if (this.currentModule && delta > 0) {
+        this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + delta;
       }
     } else {
-      this.pomodoroSecondsLeft--;
-      if (this.pomodoroPhase === 'work' && this.currentModule) {
-        this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + 1;
-        if (this.pomodoroSecondsLeft % 10 === 0) this.saveModules();
-      }
-      if (this.pomodoroSecondsLeft <= 0) {
-        this.playBeep();
+      // Pomodoro — elapsed time since current phase started
+      let phaseElapsed = Math.floor((now - this.pomodoroPhaseStartTs) / 1000);
+      let phaseDur = this.pomodoroPhase === 'work' ? 25 * 60 : 5 * 60;
+
+      // Handle one or more phase transitions that happened while minimised
+      while (phaseElapsed >= phaseDur) {
+        // Credit any remaining work seconds in the phase that just ended
         if (this.pomodoroPhase === 'work') {
-          this.pomodoroPhase = 'break';
-          this.pomodoroSecondsLeft = 5 * 60;
-        } else {
-          this.pomodoroPhase = 'work';
-          this.pomodoroSecondsLeft = 25 * 60;
+          const workDelta = phaseDur - this.pomodoroLastWorkSec;
+          if (this.currentModule && workDelta > 0) {
+            this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + workDelta;
+          }
         }
+        phaseElapsed -= phaseDur;
+        this.pomodoroPhase = this.pomodoroPhase === 'work' ? 'break' : 'work';
+        this.pomodoroLastWorkSec = 0;
+        phaseDur = this.pomodoroPhase === 'work' ? 25 * 60 : 5 * 60;
+        this.playBeep();
         this.updatePomodoroPhaseLabel();
       }
+
+      // Credit work seconds in the current (ongoing) phase
+      if (this.pomodoroPhase === 'work') {
+        const workDelta = phaseElapsed - this.pomodoroLastWorkSec;
+        if (this.currentModule && workDelta > 0) {
+          this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + workDelta;
+        }
+        this.pomodoroLastWorkSec = phaseElapsed;
+      }
+      this.pomodoroSecondsLeft = phaseDur - phaseElapsed;
     }
+  }
+
+  private timerTick(): void {
+    this.flushTimerState();
     this.updateTimerDisplay();
     this.updateTimerTotalDisplay();
+    // Autosave every ~30 s
+    if (this.currentModule && this.stopwatchSeconds % 30 === 0 && this.stopwatchSeconds > 0) {
+      this.saveModules();
+    }
   }
 
   private updateTimerDisplay(): void {

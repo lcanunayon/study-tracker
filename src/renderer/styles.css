@@ -306,7 +306,8 @@ body {
   display: flex;
   flex-direction: column;
   border-right: 1px solid rgba(0, 212, 255, 0.2);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .workspace-container {
@@ -689,42 +690,43 @@ body {
 
 /* Workspace Styles */
 .workspace-toolbar {
+  background: rgba(0, 0, 0, 0.6);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+}
+
+.workspace-toolbar-inner {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: rgba(0, 0, 0, 0.6);
-  border-bottom: 1px solid rgba(0, 212, 255, 0.2);
-  overflow-x: auto;
-  overflow-y: visible;
-  scroll-behavior: smooth;
+  width: max-content;
+  min-width: 100%;
 }
 
-/* Scrollbar hidden by default, revealed via .scrollbar-visible class on hover (JS-toggled) */
+.toolbar-spacer {
+  flex: 1;
+  min-width: 16px;
+}
+
 .workspace-toolbar::-webkit-scrollbar {
-  height: 4px;
+  height: 5px;
 }
 
 .workspace-toolbar::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
 }
 
 .workspace-toolbar::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 2px;
+  background: rgba(0, 212, 255, 0.4);
+  border-radius: 3px;
 }
 
-.workspace-toolbar.scrollbar-visible::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.4);
-}
-
-.workspace-toolbar.scrollbar-visible::-webkit-scrollbar-thumb {
-  background: rgba(0, 212, 255, 0.5);
-}
-
-.workspace-toolbar.scrollbar-visible::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 212, 255, 0.85);
+.workspace-toolbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.8);
 }
 
 .tool-btn {
