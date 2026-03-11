@@ -467,6 +467,20 @@ body {
   font-weight: 600;
 }
 
+.timer-total-edit {
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.7);
+  color: #00d4ff;
+  font-size: 13px;
+  font-weight: 600;
+  width: 88px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  outline: none;
+  text-align: center;
+  font-family: 'Courier New', monospace;
+}
+
 .timer-controls {
   display: flex;
   gap: 8px;

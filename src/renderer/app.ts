@@ -630,7 +630,7 @@ class StudyTrackerApp {
                 <div class="timer-display" id="timerDisplay">${this.timerMode === 'stopwatch' ? this.formatStopwatch(this.stopwatchSeconds) : this.formatPomodoro(this.pomodoroSecondsLeft)}</div>
                 <div class="timer-total-row">
                   <span class="timer-total-label">Total studied</span>
-                  <span class="timer-total-value" id="timerTotalDisplay">${this.formatTotalTime(this.currentModule.studyTime ?? 0)}</span>
+                  <span class="timer-total-value" id="timerTotalDisplay" title="Double-click to edit" style="cursor:pointer">${this.formatTotalTime(this.currentModule.studyTime ?? 0)}</span>
                 </div>
                 <div class="timer-controls">
                   <button class="timer-btn timer-start-pause" id="timerStartPause">${this.timerRunning ? '⏸ Pause' : '▶ Start'}</button>
@@ -776,6 +776,8 @@ class StudyTrackerApp {
       if (timerTabPm) timerTabPm.addEventListener('click', () => this.switchTimerMode('pomodoro'));
       if (timerStartPause) timerStartPause.addEventListener('click', () => this.timerRunning ? this.pauseTimer() : this.startTimer());
       if (timerReset) timerReset.addEventListener('click', () => this.resetTimer());
+      const timerTotal = document.getElementById('timerTotalDisplay');
+      if (timerTotal) timerTotal.addEventListener('dblclick', () => this.editTotalTime());
     }
   }
 
@@ -3101,6 +3103,8 @@ class StudyTrackerApp {
         this.pomodoroPhase = this.pomodoroPhase === 'work' ? 'break' : 'work';
         this.pomodoroLastWorkSec = 0;
         phaseDur = this.pomodoroPhase === 'work' ? 25 * 60 : 5 * 60;
+        // KEY: advance the phase-start timestamp so the next flush sees correct elapsed
+        this.pomodoroPhaseStartTs = now - phaseElapsed * 1000;
         this.playBeep();
         this.updatePomodoroPhaseLabel();
       }
@@ -3137,9 +3141,59 @@ class StudyTrackerApp {
 
   private updateTimerTotalDisplay(): void {
     const el = document.getElementById('timerTotalDisplay');
-    if (el && this.currentModule) {
+    if (el && el.tagName === 'SPAN' && this.currentModule) {
       el.textContent = this.formatTotalTime(this.currentModule.studyTime ?? 0);
     }
+  }
+
+  private editTotalTime(): void {
+    const span = document.getElementById('timerTotalDisplay');
+    if (!span || !this.currentModule) return;
+
+    const currentSeconds = this.currentModule.studyTime ?? 0;
+    const h = Math.floor(currentSeconds / 3600);
+    const m = Math.floor((currentSeconds % 3600) / 60);
+    const s = currentSeconds % 60;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    input.className = 'timer-total-edit';
+    input.title = 'H:MM:SS — Enter to save, Esc to cancel';
+
+    const restore = (newSeconds?: number) => {
+      const finalSeconds = newSeconds ?? currentSeconds;
+      if (newSeconds !== undefined && this.currentModule) {
+        this.currentModule.studyTime = finalSeconds;
+        this.saveModules();
+      }
+      const newSpan = document.createElement('span');
+      newSpan.id = 'timerTotalDisplay';
+      newSpan.className = 'timer-total-value';
+      newSpan.title = 'Double-click to edit';
+      newSpan.style.cursor = 'pointer';
+      newSpan.textContent = this.formatTotalTime(this.currentModule?.studyTime ?? 0);
+      newSpan.addEventListener('dblclick', () => this.editTotalTime());
+      input.replaceWith(newSpan);
+    };
+
+    const commit = () => {
+      const parts = input.value.trim().split(':').map(Number);
+      let parsed = NaN;
+      if (parts.length === 3 && parts.every(n => !isNaN(n))) parsed = parts[0] * 3600 + parts[1] * 60 + parts[2];
+      else if (parts.length === 2 && parts.every(n => !isNaN(n))) parsed = parts[0] * 60 + parts[1];
+      else if (parts.length === 1 && !isNaN(parts[0])) parsed = parts[0];
+      restore(isNaN(parsed) || parsed < 0 ? undefined : Math.floor(parsed));
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { input.removeEventListener('blur', commit); restore(); }
+    });
+    input.addEventListener('blur', commit);
+
+    span.replaceWith(input);
+    input.select();
   }
 
   private updateTimerStartPauseBtn(): void {
