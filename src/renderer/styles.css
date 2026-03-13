@@ -519,6 +519,19 @@ body {
   box-shadow: 0 0 10px rgba(255, 80, 80, 0.25);
 }
 
+.timer-reset-confirm {
+  background: rgba(255, 60, 60, 0.25) !important;
+  border-color: rgba(255, 60, 60, 0.8) !important;
+  color: #ff6060 !important;
+  font-size: 11px !important;
+  animation: pulse-warn 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-warn {
+  from { box-shadow: 0 0 6px rgba(255, 60, 60, 0.4); }
+  to   { box-shadow: 0 0 14px rgba(255, 60, 60, 0.8); }
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

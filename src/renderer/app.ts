@@ -99,6 +99,7 @@ class StudyTrackerApp {
   private timerMode: 'stopwatch' | 'pomodoro' = 'stopwatch';
   private timerRunning = false;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
+  private resetConfirmPending = false;
   // Stopwatch — base holds accumulated seconds before the last Start press
   private stopwatchSeconds = 0;
   private swBaseSeconds = 0;
@@ -775,7 +776,23 @@ class StudyTrackerApp {
       if (timerTabSw) timerTabSw.addEventListener('click', () => this.switchTimerMode('stopwatch'));
       if (timerTabPm) timerTabPm.addEventListener('click', () => this.switchTimerMode('pomodoro'));
       if (timerStartPause) timerStartPause.addEventListener('click', () => this.timerRunning ? this.pauseTimer() : this.startTimer());
-      if (timerReset) timerReset.addEventListener('click', () => this.resetTimer());
+      if (timerReset) timerReset.addEventListener('click', () => {
+        if (this.resetConfirmPending) {
+          this.resetConfirmPending = false;
+          this.resetTimer();
+        } else {
+          this.resetConfirmPending = true;
+          timerReset.textContent = '⚠ Confirm? (cannot undo)';
+          (timerReset as HTMLElement).classList.add('timer-reset-confirm');
+          setTimeout(() => {
+            if (this.resetConfirmPending) {
+              this.resetConfirmPending = false;
+              timerReset.textContent = '↺ Reset';
+              (timerReset as HTMLElement).classList.remove('timer-reset-confirm');
+            }
+          }, 3000);
+        }
+      });
       const timerTotal = document.getElementById('timerTotalDisplay');
       if (timerTotal) timerTotal.addEventListener('dblclick', () => this.editTotalTime());
     }
@@ -1124,6 +1141,7 @@ class StudyTrackerApp {
     // Color picker
     const drawColorInput = canvas.parentElement?.querySelector('#drawColor') as HTMLInputElement;
     if (drawColorInput) {
+      drawColorInput.value = this.drawColor;
       drawColorInput.addEventListener('change', (e) => {
         this.drawColor = (e.target as HTMLInputElement).value;
       });
@@ -1265,12 +1283,18 @@ class StudyTrackerApp {
     });
     resizeObserver.observe(canvas);
 
-    // Set default tool
-    const pointerBtn = canvas.parentElement?.querySelector('#toolPointer');
-    if (pointerBtn) {
-      pointerBtn.classList.add('active');
-      this.workspaceTool = 'pointer';
-    }
+    // Restore active tool (preserves selection across undo/redo/re-renders)
+    const toolIdMap: { [key: string]: string } = {
+      pointer: 'toolPointer', note: 'toolNote', draw: 'toolDraw',
+      erase: 'toolErase', image: 'toolMedia', text: 'toolText',
+      connect: 'toolConnect', folder: 'toolFolder',
+    };
+    const activeToolId = toolIdMap[this.workspaceTool] || 'toolPointer';
+    const activeBtn = canvas.parentElement?.querySelector(`#${activeToolId}`);
+    if (activeBtn) activeBtn.classList.add('active');
+    // Sync canvas cursor classes
+    canvas.classList.toggle('pan-cursor', this.workspaceTool === 'pointer');
+    canvas.classList.toggle('eraser-cursor', this.workspaceTool === 'erase');
   }
 
   private drawWorkspace(): void {
@@ -3058,6 +3082,7 @@ class StudyTrackerApp {
   }
 
   private resetTimer(): void {
+    this.resetConfirmPending = false;
     this.pauseTimer();
     this.stopwatchSeconds = 0;
     this.swBaseSeconds = 0;
