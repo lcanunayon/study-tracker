@@ -1,3 +1,6 @@
+import { auth, fbSignIn, fbSignUp, fbSignOut, onAuthStateChanged, saveUserModules, loadUserModules } from './firebase';
+import type { User } from './firebase';
+
 interface Module {
   id: string;
   name: string;
@@ -61,6 +64,12 @@ class StudyTrackerApp {
   private draggedModule: Module | null = null;
   private storageKey = 'study-tracker-modules';
 
+  // Auth
+  private currentUser: User | null = null;
+  private authReady = false;
+  private authMode: 'login' | 'signup' = 'login';
+  private fbSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Workspace properties
   private workspaceCanvas: HTMLCanvasElement | null = null;
   private workspaceCtx: CanvasRenderingContext2D | null = null;
@@ -112,16 +121,35 @@ class StudyTrackerApp {
 
   constructor() {
     this.loadModules();
-    // Initialize history with current state
     this.pushHistory();
     this.initializeHTML();
     this.render();
-    this.attachEventListeners();
-    // Immediately catch up whenever the window comes back from minimised / background
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && this.timerRunning) {
-        this.timerTick();
+      if (!document.hidden && this.timerRunning) this.timerTick();
+    });
+
+    // Firebase auth: re-render on login/logout, load cloud data on sign-in
+    onAuthStateChanged(auth, async (user) => {
+      this.currentUser = user;
+      if (user) {
+        try {
+          const cloud = await loadUserModules(user.uid);
+          if (cloud && (cloud as Module[]).length > 0) {
+            this.modules = cloud as Module[];
+            // cache locally without triggering another Firestore write
+            localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+            this.undoStack = [];
+            this.pushHistory();
+          } else if (this.modules.length > 0) {
+            // First login — upload existing local data to Firestore
+            await saveUserModules(user.uid, this.modules);
+          }
+        } catch (e) {
+          console.error('Firestore load failed:', e);
+        }
       }
+      this.authReady = true;
+      this.render();
     });
   }
 
@@ -470,6 +498,19 @@ class StudyTrackerApp {
 
   private saveModules(): void {
     localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+    if (this.currentUser) {
+      if (this.fbSyncTimer) clearTimeout(this.fbSyncTimer);
+      this.fbSyncTimer = setTimeout(() => this.syncToFirestore(), 2000);
+    }
+  }
+
+  private async syncToFirestore(): Promise<void> {
+    if (!this.currentUser) return;
+    try {
+      await saveUserModules(this.currentUser.uid, this.modules);
+    } catch (err) {
+      console.error('Firestore sync failed:', err);
+    }
   }
 
   private pushHistory(): void {
@@ -532,13 +573,58 @@ class StudyTrackerApp {
     const container = document.getElementById('mainContainer');
     if (!container) return;
 
-    if (this.isDetailView && this.currentModule) {
+    if (!this.authReady) {
+      container.innerHTML = this.renderAuthLoading();
+    } else if (!this.currentUser) {
+      container.innerHTML = this.renderAuthView();
+    } else if (this.isDetailView && this.currentModule) {
       container.innerHTML = this.renderDetailView();
     } else {
       container.innerHTML = this.renderMainView();
     }
 
     this.attachEventListeners();
+  }
+
+  private renderAuthLoading(): string {
+    return `
+      <div class="auth-container">
+        <div class="auth-card">
+          <div class="auth-logo">📚</div>
+          <h1 class="auth-title">Study Tracker</h1>
+          <div class="auth-loading"><span class="auth-spinner"></span>Loading…</div>
+        </div>
+      </div>`;
+  }
+
+  private renderAuthView(): string {
+    const isSignup = this.authMode === 'signup';
+    return `
+      <div class="auth-container">
+        <div class="auth-card">
+          <div class="auth-logo">📚</div>
+          <h1 class="auth-title">Study Tracker</h1>
+          <p class="auth-subtitle">Sync your progress across devices</p>
+
+          <div class="auth-tabs">
+            <button class="auth-tab ${!isSignup ? 'active' : ''}" id="authTabLogin">Sign In</button>
+            <button class="auth-tab ${isSignup ? 'active' : ''}" id="authTabSignup">Sign Up</button>
+          </div>
+
+          <form class="auth-form" id="authForm" autocomplete="on">
+            <input type="email" id="authEmail" placeholder="Email address" class="auth-input"
+              autocomplete="email" />
+            <input type="password" id="authPassword" placeholder="Password" class="auth-input"
+              autocomplete="${isSignup ? 'new-password' : 'current-password'}" />
+            ${isSignup ? `<input type="password" id="authPasswordConfirm" placeholder="Confirm password"
+              class="auth-input" autocomplete="new-password" />` : ''}
+            <div class="auth-error" id="authError"></div>
+            <button type="submit" class="auth-submit" id="authSubmit">
+              ${isSignup ? 'Create Account' : 'Sign In'}
+            </button>
+          </form>
+        </div>
+      </div>`;
   }
 
   private renderMainView(): string {
@@ -552,6 +638,8 @@ class StudyTrackerApp {
             ${this.isEditMode ? '✓ Done' : '✎ Edit'}
           </button>
           <button class="add-module-btn" id="addModuleBtn">+ New Module</button>
+          <span class="user-email-display" title="${this.escapeHtml(this.currentUser?.email || '')}">${this.escapeHtml(this.currentUser?.email || '')}</span>
+          <button class="logout-btn" id="logoutBtn">Sign Out</button>
         </div>
       </div>
       <div class="main-content">
@@ -796,6 +884,68 @@ class StudyTrackerApp {
       const timerTotal = document.getElementById('timerTotalDisplay');
       if (timerTotal) timerTotal.addEventListener('dblclick', () => this.editTotalTime());
     }
+
+    // Auth form
+    const authTabLogin = document.getElementById('authTabLogin');
+    const authTabSignup = document.getElementById('authTabSignup');
+    if (authTabLogin) authTabLogin.addEventListener('click', () => { this.authMode = 'login'; this.render(); });
+    if (authTabSignup) authTabSignup.addEventListener('click', () => { this.authMode = 'signup'; this.render(); });
+
+    const authForm = document.getElementById('authForm') as HTMLFormElement | null;
+    if (authForm) {
+      authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = (document.getElementById('authEmail') as HTMLInputElement).value.trim();
+        const password = (document.getElementById('authPassword') as HTMLInputElement).value;
+        const confirmEl = document.getElementById('authPasswordConfirm') as HTMLInputElement | null;
+        const errorEl = document.getElementById('authError') as HTMLElement;
+        const submitBtn = document.getElementById('authSubmit') as HTMLButtonElement;
+
+        if (!email || !password) return;
+        if (this.authMode === 'signup' && confirmEl && password !== confirmEl.value) {
+          errorEl.textContent = 'Passwords do not match.';
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = this.authMode === 'login' ? 'Signing in…' : 'Creating account…';
+        errorEl.textContent = '';
+
+        try {
+          if (this.authMode === 'login') {
+            await fbSignIn(email, password);
+          } else {
+            await fbSignUp(email, password);
+          }
+          // onAuthStateChanged handles re-render
+        } catch (err: unknown) {
+          errorEl.textContent = this.formatAuthError(err instanceof Error ? err.message : '');
+          submitBtn.disabled = false;
+          submitBtn.textContent = this.authMode === 'login' ? 'Sign In' : 'Create Account';
+        }
+      });
+    }
+
+    // Logout
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', async () => {
+        this.pauseTimer();
+        await fbSignOut();
+        this.isDetailView = false;
+        this.currentModule = null;
+      });
+    }
+  }
+
+  private formatAuthError(msg: string): string {
+    if (msg.includes('user-not-found') || msg.includes('wrong-password') || msg.includes('invalid-credential'))
+      return 'Invalid email or password.';
+    if (msg.includes('email-already-in-use')) return 'An account with this email already exists.';
+    if (msg.includes('weak-password')) return 'Password must be at least 6 characters.';
+    if (msg.includes('invalid-email')) return 'Please enter a valid email address.';
+    if (msg.includes('network-request-failed')) return 'Network error — check your connection.';
+    return 'Authentication failed. Please try again.';
   }
 
   private handleImageUpload(file: File): void {
@@ -825,12 +975,7 @@ class StudyTrackerApp {
       description: descriptionInput.value.trim(),
       image: imagePreview && imagePreview.style.display !== 'none' ? imagePreview.src : undefined,
       createdAt: Date.now(),
-      workspace: {
-        items: [],
-        offsetX: 0,
-        offsetY: 0,
-        zoom: 1,
-      },
+      workspace: { items: [], offsetX: 0, offsetY: 0, zoom: 1 },
     };
 
     this.modules.push(module);
@@ -1949,16 +2094,14 @@ class StudyTrackerApp {
     if (mimeType.startsWith('video/')) type = 'video';
     else if (mimeType === 'application/pdf' || mimeType === 'pdf') type = 'pdf';
 
-    // Use filename (without extension) as the default display name
     const name = fileName ? fileName.replace(/\.[^.]+$/, '') : undefined;
 
     const w = 200;
     const h = type === 'video' ? 140 : 200;
-    // Place centred on the last known canvas cursor position (zoom-divided coords)
     const cx = this.mouseCanvasX || (this.workspaceCanvas ? this.workspaceCanvas.width / ws.zoom / 2 : 300);
     const cy = this.mouseCanvasY || (this.workspaceCanvas ? this.workspaceCanvas.height / ws.zoom / 2 : 200);
     const item: WorkspaceItem = {
-      id: Math.random().toString(36),
+      id: Math.random().toString(36).slice(2),
       type,
       x: cx - ws.offsetX - w / 2,
       y: cy - ws.offsetY - h / 2,

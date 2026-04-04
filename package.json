@@ -8,10 +8,10 @@
   "license": "MIT",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:frontend": "tsc --watch",
+    "dev:frontend": "tsc -p tsconfig.main.json --watch & esbuild src/renderer/app.ts --bundle --platform=browser --target=chrome108 --outfile=dist/renderer/app.js --watch",
     "dev:backend": "cd backend && cmake -B build && cmake --build build && cd ..",
     "build": "npm run build:backend && npm run build:frontend && npm run electron:build",
-    "build:frontend": "tsc",
+    "build:frontend": "tsc -p tsconfig.main.json && node scripts/copy-static.js && esbuild src/renderer/app.ts --bundle --platform=browser --target=chrome108 --outfile=dist/renderer/app.js",
     "build:backend": "cd backend && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release && cd ..",
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
@@ -19,12 +19,15 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "concurrently": "^8.0.0",
     "electron": "^27.0.0",
     "electron-builder": "^24.0.0",
-    "typescript": "^5.0.0",
-    "concurrently": "^8.0.0"
+    "esbuild": "^0.28.0",
+    "typescript": "^5.0.0"
   },
-  "dependencies": {},
+  "dependencies": {
+    "firebase": "^12.11.0"
+  },
   "build": {
     "appId": "com.studytracker.app",
     "productName": "Study Tracker",
