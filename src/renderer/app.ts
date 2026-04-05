@@ -63,6 +63,8 @@ class StudyTrackerApp {
   private isEditMode = false;
   private draggedModule: Module | null = null;
   private storageKey = 'study-tracker-modules';
+  private storageUidKey = 'study-tracker-uid';
+  private detailViewAnimDone = false;
 
   // Auth
   private currentUser: User | null = null;
@@ -132,21 +134,31 @@ class StudyTrackerApp {
     onAuthStateChanged(auth, async (user) => {
       this.currentUser = user;
       if (user) {
+        const storedUid = localStorage.getItem(this.storageUidKey);
+        const isSameUser = storedUid === user.uid;
         try {
           const cloud = await loadUserModules(user.uid);
           if (cloud && (cloud as Module[]).length > 0) {
             this.modules = cloud as Module[];
-            // cache locally without triggering another Firestore write
             localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+            localStorage.setItem(this.storageUidKey, user.uid);
             this.undoStack = [];
             this.pushHistory();
-          } else if (this.modules.length > 0) {
-            // First login — upload existing local data to Firestore
-            await saveUserModules(user.uid, this.modules);
+          } else if (!isSameUser) {
+            // Different account with no cloud data — clear stale local data
+            this.modules = [];
+            localStorage.removeItem(this.storageKey);
+            localStorage.setItem(this.storageUidKey, user.uid);
           }
+          // Same user + no cloud data: keep localStorage as fallback
         } catch (e) {
           console.error('Firestore load failed:', e);
+          if (!isSameUser) this.modules = []; // don't leak another user's data
         }
+      } else {
+        // Logged out — preserve localStorage so same user can restore on next login
+        this.currentModule = null;
+        this.isDetailView = false;
       }
       this.authReady = true;
       this.render();
@@ -499,6 +511,7 @@ class StudyTrackerApp {
   private saveModules(): void {
     localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
     if (this.currentUser) {
+      localStorage.setItem(this.storageUidKey, this.currentUser.uid);
       if (this.fbSyncTimer) clearTimeout(this.fbSyncTimer);
       this.fbSyncTimer = setTimeout(() => this.syncToFirestore(), 2000);
     }
@@ -579,6 +592,10 @@ class StudyTrackerApp {
       container.innerHTML = this.renderAuthView();
     } else if (this.isDetailView && this.currentModule) {
       container.innerHTML = this.renderDetailView();
+      // Suppress the slideIn animation on re-renders (undo/redo) — only play it on fresh opens
+      const dv = container.querySelector<HTMLElement>('.detail-view');
+      if (dv && this.detailViewAnimDone) dv.style.animation = 'none';
+      this.detailViewAnimDone = true;
     } else {
       container.innerHTML = this.renderMainView();
     }
@@ -1125,6 +1142,7 @@ class StudyTrackerApp {
     if (module) {
       this.currentModule = module;
       this.isDetailView = true;
+      this.detailViewAnimDone = false; // allow slideIn animation on fresh open
       if (!module.workspace) {
         module.workspace = {
           items: [],
@@ -1270,14 +1288,16 @@ class StudyTrackerApp {
     // Draw initial state
     this.drawWorkspace();
 
-    // Tool button handlers
+    // Tool button handlers — only actual tool-selection buttons, not undo/redo/zoom/clear
+    const toolButtonIds = new Set(['toolPointer', 'toolNote', 'toolDraw', 'toolErase', 'toolMedia', 'toolText', 'toolConnect', 'toolFolder']);
     const toolButtons = canvas.parentElement?.querySelectorAll('.tool-btn');
     if (toolButtons) {
       toolButtons.forEach((btn) => {
+        const toolId = (btn as HTMLElement).id;
+        if (!toolButtonIds.has(toolId)) return;
         btn.addEventListener('click', () => {
-          toolButtons.forEach((b) => b.classList.remove('active'));
+          toolButtons.forEach((b) => { if (toolButtonIds.has((b as HTMLElement).id)) b.classList.remove('active'); });
           btn.classList.add('active');
-          const toolId = (btn as HTMLElement).id;
           this.selectTool(toolId);
         });
       });
