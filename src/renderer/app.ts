@@ -748,7 +748,6 @@ class StudyTrackerApp {
         </div>
         <div class="workspace-container">
           <div class="workspace-toolbar">
-            <div class="workspace-toolbar-inner">
             <button class="tool-btn" id="undoWorkspaceBtn" title="Undo">↶</button>
             <button class="tool-btn" id="redoWorkspaceBtn" title="Redo">↷</button>
             <button class="tool-btn" id="toolPointer" title="Select">➡</button>
@@ -760,7 +759,7 @@ class StudyTrackerApp {
             <button class="tool-btn" id="toolConnect" title="Connect Items">🔗</button>
             <button class="tool-btn" id="toolFolder" title="Create Folder">📁</button>
             <input type="color" id="drawColor" value="#000000" title="Draw Color">
-            <div id="toolOptions" style="display:none;align-items:center;gap:6px;border-left:1px solid rgba(0,212,255,0.2);padding-left:8px;margin-left:2px;">
+            <div id="toolOptions" style="display:none;align-items:center;gap:6px;flex-shrink:0;border-left:1px solid rgba(0,212,255,0.2);padding-left:8px;margin-left:2px;">
               <div id="optBrushSize" style="display:none;align-items:center;gap:5px;">
                 <span style="color:rgba(255,255,255,0.5);font-size:11px;">Brush</span>
                 <input type="range" id="brushSizeSlider" min="1" max="50" value="2" style="width:72px;accent-color:#00d4ff;cursor:pointer;vertical-align:middle;">
@@ -798,8 +797,7 @@ class StudyTrackerApp {
             <div class="toolbar-spacer"></div>
             <button class="tool-btn" id="zoomIn" title="Zoom In">🔍+</button>
             <button class="tool-btn" id="zoomOut" title="Zoom Out">🔍-</button>
-            <span id="zoomLevel" style="color: #00d4ff; font-size: 12px; margin: 0 10px;">100%</span>
-            </div>
+            <span id="zoomLevel" style="color:#00d4ff;font-size:12px;white-space:nowrap;flex-shrink:0;margin:0 10px;">100%</span>
           </div>
           <canvas id="workspaceCanvas" class="workspace-canvas"></canvas>
         </div>
