@@ -757,7 +757,10 @@ class StudyTrackerApp {
             ${
               hasImage
                 ? `<img class="detail-image" src="${this.currentModule.image}" alt="${this.currentModule.name}">`
-                : ''
+                : `<div class="detail-image-placeholder" id="detailImagePlaceholder" title="Add an image to your module">
+                    <span class="detail-image-placeholder-icon">[+]</span>
+                    <span class="detail-image-placeholder-text">Add an image to your module.</span>
+                  </div>`
             }
             <div class="detail-description">${this.escapeHtml(this.currentModule.description)}</div>
             <div class="timer-section">
@@ -897,6 +900,14 @@ class StudyTrackerApp {
     const backBtn = document.getElementById('backBtn');
     if (backBtn) {
       backBtn.addEventListener('click', () => this.closeDetailView());
+    }
+
+    // Detail image placeholder — click to open edit modal
+    const detailImagePlaceholder = document.getElementById('detailImagePlaceholder');
+    if (detailImagePlaceholder && this.currentModule) {
+      detailImagePlaceholder.addEventListener('click', () => {
+        if (this.currentModule) this.openEditModuleModal(this.currentModule.id);
+      });
     }
 
     // Initialize workspace if in detail view
