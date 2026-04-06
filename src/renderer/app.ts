@@ -725,13 +725,14 @@ class StudyTrackerApp {
         </div>
       `;
     } else {
-      // Card without image - gradient placeholder with icon and title
+      const gradient = this.getPlaceholderGradient(module.id);
+      // Card without image - animated gradient placeholder with icon and title
       return `
         <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
           ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
           ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
           ${this.isEditMode ? `<button class="edit-module-btn" data-module-id="${module.id}" title="Edit module">✎</button>` : ''}
-          <div class="card-placeholder">
+          <div class="card-placeholder" style="background-image: ${gradient};">
             <div class="card-placeholder-icon">📚</div>
             <div class="card-title">${this.escapeHtml(module.name)}</div>
             <div class="card-placeholder-desc">${this.escapeHtml(module.description)}</div>
@@ -1323,6 +1324,28 @@ class StudyTrackerApp {
     this.isDetailView = false;
     this.currentModule = null;
     this.render();
+  }
+
+  private getPlaceholderGradient(moduleId: string): string {
+    // Deterministic hash from the module ID to pick a palette entry
+    let hash = 0;
+    for (let i = 0; i < moduleId.length; i++) {
+      hash = (hash * 31 + moduleId.charCodeAt(i)) >>> 0;
+    }
+    const palettes = [
+      ['#667eea', '#764ba2', '#f093fb'], // purple-blue
+      ['#f7971e', '#ffd200', '#f7971e'], // amber
+      ['#11998e', '#38ef7d', '#11998e'], // emerald
+      ['#ee0979', '#ff6a00', '#ee0979'], // red-orange
+      ['#4facfe', '#00f2fe', '#4facfe'], // sky blue
+      ['#43e97b', '#38f9d7', '#43e97b'], // mint
+      ['#fa709a', '#fee140', '#fa709a'], // pink-gold
+      ['#a18cd1', '#fbc2eb', '#a18cd1'], // lavender
+      ['#fd7043', '#42a5f5', '#fd7043'], // sunset
+      ['#00c6ff', '#0072ff', '#00c6ff'], // ocean
+    ];
+    const [a, b, c] = palettes[hash % palettes.length];
+    return `linear-gradient(135deg, ${a} 0%, ${b} 50%, ${c} 100%)`;
   }
 
   private escapeHtml(text: string): string {
