@@ -61,6 +61,7 @@ class StudyTrackerApp {
   private currentModule: Module | null = null;
   private isDetailView = false;
   private isEditMode = false;
+  private editingModuleId: string | null = null;
   private draggedModule: Module | null = null;
   private storageKey = 'study-tracker-modules';
   private storageUidKey = 'study-tracker-uid';
@@ -170,6 +171,35 @@ class StudyTrackerApp {
     if (root) {
       root.innerHTML = `
         <div class="main-container" id="mainContainer"></div>
+        <div class="modal-overlay" id="editModuleOverlay" style="display: none;">
+          <div class="modal" id="editModuleModal">
+            <h2>Edit Module</h2>
+            <form id="editModuleForm">
+              <input type="hidden" id="editModuleId">
+              <div class="form-group">
+                <label for="editModuleName">Module Name *</label>
+                <input type="text" id="editModuleName" placeholder="e.g., React Hooks" required>
+              </div>
+              <div class="form-group">
+                <label for="editModuleDescription">Description *</label>
+                <textarea id="editModuleDescription" placeholder="What does this module teach?" required></textarea>
+              </div>
+              <div class="form-group">
+                <label>Module Cover Image</label>
+                <div class="image-upload-area" id="editImageUploadArea">
+                  <input type="file" id="editImageInput" accept="image/*">
+                  <div class="upload-text">Click to upload or drag & drop an image</div>
+                </div>
+                <img id="editImagePreview" class="image-preview" style="display: none;" alt="Preview">
+                <button type="button" class="btn btn-secondary" id="editRemoveImageBtn" style="margin-top:8px;display:none;">Remove Image</button>
+              </div>
+              <div class="form-actions">
+                <button type="button" class="btn btn-secondary" id="editCancelBtn">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
         <div class="modal-overlay" id="modalOverlay" style="display: none;">
           <div class="modal" id="addModuleModal">
             <h2>Create New Module</h2>
@@ -685,6 +715,7 @@ class StudyTrackerApp {
         <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
           ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
           ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
+          ${this.isEditMode ? `<button class="edit-module-btn" data-module-id="${module.id}" title="Edit module">✎</button>` : ''}
           <img class="card-background" src="${module.image}" alt="${module.name}">
           <div class="card-overlay"></div>
           <div class="card-content">
@@ -694,13 +725,16 @@ class StudyTrackerApp {
         </div>
       `;
     } else {
-      // Card without image - gradient placeholder with centered title only
+      // Card without image - gradient placeholder with icon and title
       return `
         <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
           ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
           ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
+          ${this.isEditMode ? `<button class="edit-module-btn" data-module-id="${module.id}" title="Edit module">✎</button>` : ''}
           <div class="card-placeholder">
+            <div class="card-placeholder-icon">📚</div>
             <div class="card-title">${this.escapeHtml(module.name)}</div>
+            <div class="card-placeholder-desc">${this.escapeHtml(module.description)}</div>
           </div>
         </div>
       `;
@@ -836,6 +870,16 @@ class StudyTrackerApp {
           e.stopPropagation();
           const moduleId = (btn as HTMLElement).dataset.moduleId;
           this.deleteModule(moduleId!);
+        });
+      });
+
+      // Edit module button handlers (only in edit mode)
+      const editModuleBtns = document.querySelectorAll('.edit-module-btn');
+      editModuleBtns.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const moduleId = (btn as HTMLElement).dataset.moduleId;
+          if (moduleId) this.openEditModuleModal(moduleId);
         });
       });
 
@@ -1132,6 +1176,115 @@ class StudyTrackerApp {
           console.log('Modal display set to: none');
         }
       }, 300);
+    }
+  }
+
+  private openEditModuleModal(moduleId: string): void {
+    const module = this.modules.find(m => m.id === moduleId);
+    if (!module) return;
+
+    const overlay = document.getElementById('editModuleOverlay') as HTMLElement;
+    if (!overlay) return;
+
+    // Populate fields
+    (overlay.querySelector('#editModuleId') as HTMLInputElement).value = moduleId;
+    (overlay.querySelector('#editModuleName') as HTMLInputElement).value = module.name;
+    (overlay.querySelector('#editModuleDescription') as HTMLTextAreaElement).value = module.description;
+
+    const preview = overlay.querySelector('#editImagePreview') as HTMLImageElement;
+    const removeBtn = overlay.querySelector('#editRemoveImageBtn') as HTMLButtonElement;
+    if (module.image && module.image.startsWith('data:')) {
+      preview.src = module.image;
+      preview.style.display = 'block';
+      overlay.dataset.imageData = module.image;
+      removeBtn.style.display = 'inline-block';
+    } else {
+      preview.src = '';
+      preview.style.display = 'none';
+      delete overlay.dataset.imageData;
+      removeBtn.style.display = 'none';
+    }
+
+    // Wire up listeners (clone to remove stale ones)
+    const newOverlay = overlay.cloneNode(true) as HTMLElement;
+    overlay.parentNode?.replaceChild(newOverlay, overlay);
+    const fresh = document.getElementById('editModuleOverlay') as HTMLElement;
+
+    // Re-grab elements in fresh clone
+    const freshPreview = fresh.querySelector('#editImagePreview') as HTMLImageElement;
+    const freshRemoveBtn = fresh.querySelector('#editRemoveImageBtn') as HTMLButtonElement;
+    const uploadArea = fresh.querySelector('#editImageUploadArea') as HTMLElement;
+    const fileInput = fresh.querySelector('#editImageInput') as HTMLInputElement;
+
+    const handleFile = (file: File) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const data = e.target?.result as string;
+        freshPreview.src = data;
+        freshPreview.style.display = 'block';
+        fresh.dataset.imageData = data;
+        freshRemoveBtn.style.display = 'inline-block';
+      };
+      reader.readAsDataURL(file);
+    };
+
+    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.style.background = 'rgba(0,212,255,0.1)'; });
+    uploadArea.addEventListener('dragleave', () => { uploadArea.style.background = ''; });
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.style.background = '';
+      const files = (e as DragEvent).dataTransfer?.files;
+      if (files?.[0]) handleFile(files[0]);
+    });
+    fileInput.addEventListener('change', () => { if (fileInput.files?.[0]) handleFile(fileInput.files[0]); });
+
+    freshRemoveBtn.addEventListener('click', () => {
+      freshPreview.src = '';
+      freshPreview.style.display = 'none';
+      delete fresh.dataset.imageData;
+      freshRemoveBtn.style.display = 'none';
+      fileInput.value = '';
+    });
+
+    fresh.querySelector('#editCancelBtn')!.addEventListener('click', () => this.closeEditModuleModal());
+    fresh.addEventListener('click', (e) => { if (e.target === fresh) this.closeEditModuleModal(); });
+
+    (fresh.querySelector('#editModuleForm') as HTMLFormElement).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = (fresh.querySelector('#editModuleName') as HTMLInputElement).value.trim();
+      const description = (fresh.querySelector('#editModuleDescription') as HTMLTextAreaElement).value.trim();
+      if (!name || !description) return;
+
+      const mod = this.modules.find(m => m.id === moduleId);
+      if (mod) {
+        mod.name = name;
+        mod.description = description;
+        mod.image = fresh.dataset.imageData || undefined;
+        this.saveModules();
+        this.pushHistory();
+      }
+      this.closeEditModuleModal();
+      this.render();
+    });
+
+    fresh.style.opacity = '0';
+    fresh.style.pointerEvents = 'auto';
+    fresh.style.display = 'flex';
+    void fresh.offsetHeight;
+    fresh.style.opacity = '1';
+
+    setTimeout(() => {
+      (fresh.querySelector('#editModuleName') as HTMLInputElement)?.focus();
+    }, 10);
+  }
+
+  private closeEditModuleModal(): void {
+    const overlay = document.getElementById('editModuleOverlay') as HTMLElement;
+    if (overlay) {
+      overlay.style.opacity = '0';
+      overlay.style.pointerEvents = 'none';
+      setTimeout(() => { overlay.style.display = 'none'; }, 300);
     }
   }
 
