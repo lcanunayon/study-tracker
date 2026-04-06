@@ -708,12 +708,13 @@ class StudyTrackerApp {
       <div class="header">
         <h1>Workspaces</h1>
         <div class="header-buttons">
-          <button class="tool-btn" id="undoBtn" title="Undo">↶ Undo</button>
-          <button class="tool-btn" id="redoBtn" title="Redo">↷ Redo</button>
+          <button class="tool-btn header-tool-btn" id="undoBtn" title="Undo">↶ Undo</button>
+          <button class="tool-btn header-tool-btn" id="redoBtn" title="Redo">↷ Redo</button>
           <button class="edit-mode-btn ${this.isEditMode ? 'active' : ''}" id="editModeBtn" title="${this.isEditMode ? 'Done Editing' : 'Edit Modules'}">
             ${this.isEditMode ? '✓ Done' : '✎ Edit'}
           </button>
           <button class="add-module-btn" id="addModuleBtn">+ New Module</button>
+          <div class="header-divider"></div>
           <span class="user-email-display" title="${this.escapeHtml(this.currentUser?.email || '')}">${this.escapeHtml(this.currentUser?.email || '')}</span>
           <button class="logout-btn" id="logoutBtn">Sign Out</button>
         </div>

@@ -39,66 +39,97 @@ body {
 
 /* Header */
 .header {
-  padding: 20px 40px;
+  padding: 0 32px;
+  height: 62px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 100%);
+  background: rgba(10, 10, 18, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.13);
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
   z-index: 100;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
 }
 
 .header h1 {
-  font-size: 28px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .header-buttons {
   display: flex;
-  gap: 15px;
+  gap: 6px;
   align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+
+.header-divider {
+  width: 1px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Tool buttons when inside the header bar — more compact */
+.header-tool-btn {
+  padding: 5px 11px;
+  font-size: 13px;
+  background: transparent;
+  border-color: rgba(0, 212, 255, 0.2);
+}
+
+.header-tool-btn:hover {
+  background: rgba(0, 212, 255, 0.1);
 }
 
 .edit-mode-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(0, 212, 255, 0.3);
+  background: transparent;
+  border: 1px solid rgba(0, 212, 255, 0.25);
   color: #00d4ff;
-  padding: 10px 20px;
-  border-radius: 25px;
+  padding: 6px 14px;
+  border-radius: 7px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
 .edit-mode-btn:hover {
   background: rgba(0, 212, 255, 0.1);
   border-color: #00d4ff;
-  box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
 }
 
 .edit-mode-btn.active {
-  background: linear-gradient(135deg, #00d4ff, #0099cc);
+  background: rgba(0, 212, 255, 0.18);
   border-color: #00d4ff;
-  color: white;
-  box-shadow: 0 8px 20px rgba(0, 212, 255, 0.4);
+  color: #00d4ff;
 }
 
 .add-module-btn {
   background: linear-gradient(135deg, #00d4ff, #0099cc);
   border: none;
-  color: white;
-  padding: 10px 25px;
-  border-radius: 25px;
+  color: #0a0a12;
+  padding: 6px 16px;
+  border-radius: 7px;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-  transition: all 0.3s ease;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .add-module-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 212, 255, 0.4);
+  filter: brightness(1.1);
+  box-shadow: 0 0 14px rgba(0, 212, 255, 0.4);
 }
 
 /* Main Content */
@@ -782,30 +813,31 @@ body {
 
 /* User email + logout in header */
 .user-email-display {
-  color: rgba(255,255,255,0.35);
-  font-size: 12px;
-  max-width: 160px;
+  color: rgba(255,255,255,0.32);
+  font-size: 11px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   align-self: center;
+  padding: 0 4px;
 }
 
 .logout-btn {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
-  color: rgba(255,255,255,0.5);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 7px;
+  color: rgba(255,255,255,0.42);
   font-size: 12px;
-  padding: 5px 12px;
+  padding: 5px 11px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .logout-btn:hover {
-  background: rgba(255, 80, 80, 0.12);
-  border-color: rgba(255, 80, 80, 0.3);
-  color: #ff8080;
+  background: rgba(255, 70, 70, 0.1);
+  border-color: rgba(255, 70, 70, 0.3);
+  color: #ff7070;
 }
 
 /* Modal */
@@ -1426,11 +1458,26 @@ html:has(body.light-mode) {
 
 /* Header */
 body.light-mode .header {
-  background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(240,242,245,0) 100%);
+  background: rgba(255, 255, 255, 0.9);
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
 }
 
 body.light-mode .header h1 {
   color: #1a1a1a;
+}
+
+body.light-mode .header-buttons {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+body.light-mode .header-divider {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body.light-mode .header-tool-btn {
+  border-color: rgba(0, 130, 180, 0.18);
 }
 
 body.light-mode .edit-mode-btn {
