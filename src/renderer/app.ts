@@ -1,4 +1,4 @@
-import { auth, fbSignIn, fbSignUp, fbSignOut, onAuthStateChanged, saveUserModules, loadUserModules } from './firebase';
+import { auth, fbSignIn, fbSignUp, fbSignOut, onAuthStateChanged, saveUserModules, loadUserModules, saveUserBackup, loadUserBackup } from './firebase';
 import type { User } from './firebase';
 
 interface Module {
@@ -67,6 +67,12 @@ class StudyTrackerApp {
   private storageUidKey = 'study-tracker-uid';
   private detailViewAnimDone = false;
 
+  // Settings & theme
+  private isSettingsView = false;
+  private theme: 'dark' | 'light' = 'dark';
+  private backupStatus = '';
+  private lastCloudBackupTime: number | null = null;
+
   // Auth
   private currentUser: User | null = null;
   private authReady = false;
@@ -123,6 +129,8 @@ class StudyTrackerApp {
   private pomodoroLastWorkSec = 0;  // work-seconds already credited this phase (for delta)
 
   constructor() {
+    this.theme = (localStorage.getItem('study-tracker-theme') as 'dark' | 'light') || 'dark';
+    this.applyTheme();
     this.loadModules();
     this.pushHistory();
     this.initializeHTML();
@@ -139,19 +147,38 @@ class StudyTrackerApp {
         const isSameUser = storedUid === user.uid;
         try {
           const cloud = await loadUserModules(user.uid);
-          if (cloud && (cloud as Module[]).length > 0) {
-            this.modules = cloud as Module[];
-            localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+          const cloudModules = cloud as Module[] | null;
+          if (!isSameUser) {
+            // Switching accounts — cloud data is authoritative
+            if (cloudModules && cloudModules.length > 0) {
+              this.modules = cloudModules;
+            } else {
+              this.modules = [];
+              localStorage.removeItem(this.storageKey);
+            }
             localStorage.setItem(this.storageUidKey, user.uid);
+            localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
             this.undoStack = [];
             this.pushHistory();
-          } else if (!isSameUser) {
-            // Different account with no cloud data — clear stale local data
-            this.modules = [];
-            localStorage.removeItem(this.storageKey);
-            localStorage.setItem(this.storageUidKey, user.uid);
+          } else if (cloudModules && cloudModules.length > 0) {
+            // Same user — only use cloud data if local is empty or cloud has more data
+            const localIsEmpty = this.modules.length === 0;
+            const cloudHasMore = cloudModules.length > this.modules.length;
+            // Pick whichever has the most recently modified module
+            const localLatest = this.modules.reduce((max, m) => Math.max(max, m.createdAt), 0);
+            const cloudLatest = cloudModules.reduce((max, m) => Math.max(max, m.createdAt), 0);
+            if (localIsEmpty || cloudHasMore || cloudLatest > localLatest) {
+              this.modules = cloudModules;
+              localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+              this.undoStack = [];
+              this.pushHistory();
+            } else {
+              // Local is at least as fresh — push local to cloud to keep in sync
+              if (this.fbSyncTimer) clearTimeout(this.fbSyncTimer);
+              this.fbSyncTimer = setTimeout(() => this.syncToFirestore(), 2000);
+            }
           }
-          // Same user + no cloud data: keep localStorage as fallback
+          // Same user + no cloud data: keep localStorage as-is
         } catch (e) {
           console.error('Firestore load failed:', e);
           if (!isSameUser) this.modules = []; // don't leak another user's data
@@ -620,6 +647,8 @@ class StudyTrackerApp {
       container.innerHTML = this.renderAuthLoading();
     } else if (!this.currentUser) {
       container.innerHTML = this.renderAuthView();
+    } else if (this.isSettingsView) {
+      container.innerHTML = this.renderSettingsView();
     } else if (this.isDetailView && this.currentModule) {
       container.innerHTML = this.renderDetailView();
       // Suppress the slideIn animation on re-renders (undo/redo) — only play it on fresh opens
@@ -703,6 +732,7 @@ class StudyTrackerApp {
           }
         </div>
       </div>
+      <button class="settings-fab" id="settingsFabBtn" title="Settings">⚙</button>
     `;
   }
 
@@ -848,6 +878,42 @@ class StudyTrackerApp {
     const editModeBtn = document.getElementById('editModeBtn');
     if (editModeBtn) {
       editModeBtn.addEventListener('click', () => this.toggleEditMode());
+    }
+
+    // Settings FAB
+    const settingsFabBtn = document.getElementById('settingsFabBtn');
+    if (settingsFabBtn) {
+      settingsFabBtn.addEventListener('click', () => this.openSettings());
+    }
+
+    // Settings page buttons
+    const settingsBackBtn = document.getElementById('settingsBackBtn');
+    if (settingsBackBtn) {
+      settingsBackBtn.addEventListener('click', () => this.closeSettings());
+    }
+    const settingsCloudBackupBtn = document.getElementById('settingsCloudBackupBtn');
+    if (settingsCloudBackupBtn) {
+      settingsCloudBackupBtn.addEventListener('click', () => this.createCloudBackup());
+    }
+    const settingsRestoreBackupBtn = document.getElementById('settingsRestoreBackupBtn');
+    if (settingsRestoreBackupBtn) {
+      settingsRestoreBackupBtn.addEventListener('click', () => this.restoreCloudBackup());
+    }
+    const settingsExportBtn = document.getElementById('settingsExportBtn');
+    if (settingsExportBtn) {
+      settingsExportBtn.addEventListener('click', () => this.exportBackupFile());
+    }
+    const settingsImportBtn = document.getElementById('settingsImportBtn');
+    if (settingsImportBtn) {
+      settingsImportBtn.addEventListener('click', () => this.importBackupFile());
+    }
+    const themeDarkBtn = document.getElementById('themeDarkBtn');
+    if (themeDarkBtn) {
+      themeDarkBtn.addEventListener('click', () => this.setTheme('dark'));
+    }
+    const themeLightBtn = document.getElementById('themeLightBtn');
+    if (themeLightBtn) {
+      themeLightBtn.addEventListener('click', () => this.setTheme('light'));
     }
 
     // Main view events
@@ -1321,6 +1387,14 @@ class StudyTrackerApp {
   private closeDetailView(): void {
     this.closeFolderPopup();
     this.pauseTimer();
+    // Remove any floating editing textareas that were attached to document.body
+    document.querySelectorAll('textarea').forEach((ta) => {
+      if (ta.style.position === 'fixed' && ta.style.zIndex === '10000') {
+        ta.blur();
+        ta.remove();
+      }
+    });
+    this.editingNoteId = null;
     this.isDetailView = false;
     this.currentModule = null;
     this.render();
@@ -1655,13 +1729,13 @@ class StudyTrackerApp {
     const w = this.workspaceCanvas.width;
     const h = this.workspaceCanvas.height;
 
-    // Clear with dark background
-    ctx.fillStyle = '#0a0a0a';
+    // Clear background — white in light mode, dark in dark mode
+    ctx.fillStyle = this.theme === 'light' ? '#ffffff' : '#0a0a0a';
     ctx.fillRect(0, 0, w, h);
 
-    // Draw pegboard grid
+    // Draw grid lines
     const gridSize = 30;
-    ctx.strokeStyle = 'rgba(0, 212, 255, 0.15)';
+    ctx.strokeStyle = this.theme === 'light' ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 212, 255, 0.15)';
     ctx.lineWidth = 1;
 
     for (let x = 0; x < w; x += gridSize) {
@@ -1677,8 +1751,8 @@ class StudyTrackerApp {
       ctx.stroke();
     }
 
-    // Draw pegboard holes
-    ctx.fillStyle = 'rgba(0, 212, 255, 0.1)';
+    // Draw grid dots
+    ctx.fillStyle = this.theme === 'light' ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 212, 255, 0.1)';
     for (let x = gridSize / 2; x < w; x += gridSize) {
       for (let y = gridSize / 2; y < h; y += gridSize) {
         ctx.beginPath();
@@ -2211,10 +2285,21 @@ class StudyTrackerApp {
     document.body.appendChild(textarea);
     requestAnimationFrame(() => { textarea.focus(); textarea.select(); });
 
+    const isNewItem = !item.content; // placed fresh — remove if user types nothing
+
+    const removeIfEmpty = () => {
+      if (!item.content && ws) {
+        ws.items = ws.items.filter(i => i.id !== item.id);
+      }
+    };
+
     const finish = () => {
       if (!document.body.contains(textarea)) return;
-      item.content = textarea.value;
+      item.content = textarea.value.trim();
       document.body.removeChild(textarea);
+      if (isNewItem && !item.content) {
+        removeIfEmpty();
+      }
       this.saveModules();
       this.pushHistory();
       this.drawWorkspace();
@@ -2224,6 +2309,8 @@ class StudyTrackerApp {
     textarea.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (document.body.contains(textarea)) document.body.removeChild(textarea);
+        if (isNewItem) removeIfEmpty();
+        this.saveModules();
         this.drawWorkspace();
       } else if (e.key === 'Enter' && e.ctrlKey) {
         finish();
@@ -3613,6 +3700,188 @@ class StudyTrackerApp {
     } catch (_e) {
       // Audio not available
     }
+  }
+
+  // ─── Theme ──────────────────────────────────────────────────────────────────
+
+  private applyTheme(): void {
+    if (this.theme === 'light') {
+      document.body.classList.add('light-mode');
+    } else {
+      document.body.classList.remove('light-mode');
+    }
+  }
+
+  private setTheme(theme: 'dark' | 'light'): void {
+    this.theme = theme;
+    localStorage.setItem('study-tracker-theme', theme);
+    this.applyTheme();
+    this.render();
+  }
+
+  // ─── Settings navigation ────────────────────────────────────────────────────
+
+  private openSettings(): void {
+    this.isSettingsView = true;
+    this.backupStatus = '';
+    this.render();
+  }
+
+  private closeSettings(): void {
+    this.isSettingsView = false;
+    this.render();
+  }
+
+  // ─── Backup ──────────────────────────────────────────────────────────────────
+
+  private exportBackupFile(): void {
+    const data = JSON.stringify(this.modules, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `study-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this.backupStatus = 'success:Backup file downloaded.';
+    this.render();
+  }
+
+  private importBackupFile(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const parsed = JSON.parse(ev.target?.result as string);
+          if (!Array.isArray(parsed)) throw new Error('Invalid format');
+          this.modules = parsed;
+          this.saveModules();
+          this.pushHistory();
+          this.backupStatus = `success:Imported ${parsed.length} module(s) successfully.`;
+        } catch {
+          this.backupStatus = 'error:Invalid backup file.';
+        }
+        this.render();
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }
+
+  private async createCloudBackup(): Promise<void> {
+    if (!this.currentUser) {
+      this.backupStatus = 'error:You must be signed in to create a cloud backup.';
+      this.render();
+      return;
+    }
+    this.backupStatus = 'loading:Creating backup…';
+    this.render();
+    try {
+      await saveUserBackup(this.currentUser.uid, this.modules);
+      this.lastCloudBackupTime = Date.now();
+      this.backupStatus = `success:Cloud backup created at ${new Date().toLocaleTimeString()}.`;
+    } catch {
+      this.backupStatus = 'error:Cloud backup failed. Check your connection.';
+    }
+    this.render();
+  }
+
+  private async restoreCloudBackup(): Promise<void> {
+    if (!this.currentUser) {
+      this.backupStatus = 'error:You must be signed in to restore a cloud backup.';
+      this.render();
+      return;
+    }
+    if (!confirm('Restore cloud backup? This will replace your current modules.')) return;
+    this.backupStatus = 'loading:Restoring backup…';
+    this.render();
+    try {
+      const result = await loadUserBackup(this.currentUser.uid);
+      if (!result) {
+        this.backupStatus = 'error:No cloud backup found for this account.';
+      } else {
+        this.modules = result.modules as Module[];
+        this.saveModules();
+        this.pushHistory();
+        this.backupStatus = `success:Restored ${result.modules.length} module(s) from backup.`;
+      }
+    } catch {
+      this.backupStatus = 'error:Restore failed. Check your connection.';
+    }
+    this.render();
+  }
+
+  // ─── Settings view ───────────────────────────────────────────────────────────
+
+  private renderSettingsView(): string {
+    const [statusType, statusMsg] = this.backupStatus.includes(':')
+      ? this.backupStatus.split(':')
+      : ['', this.backupStatus];
+
+    const signedIn = !!this.currentUser;
+
+    return `
+      <div class="settings-view">
+        <div class="settings-header">
+          <button class="back-btn" id="settingsBackBtn">←</button>
+          <h1>Settings</h1>
+        </div>
+        <div class="settings-content">
+
+          <div class="settings-section">
+            <div class="settings-section-title">Backup</div>
+
+            <div class="settings-card">
+              <div class="settings-card-title">Cloud Backup</div>
+              <div class="settings-card-desc">Save a snapshot of all your modules and workspace data to your account on the cloud. You can restore it at any time.</div>
+              <div class="settings-card-actions">
+                <button class="settings-btn-action" id="settingsCloudBackupBtn" ${!signedIn ? 'disabled title="Sign in to use cloud backup"' : ''}>
+                  ☁ Create Backup
+                </button>
+                <button class="settings-btn-action" id="settingsRestoreBackupBtn" ${!signedIn ? 'disabled title="Sign in to restore"' : ''}>
+                  ↩ Restore Backup
+                </button>
+              </div>
+              ${statusMsg ? `<div class="settings-status ${statusType}">${this.escapeHtml(statusMsg)}</div>` : ''}
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-card-title">Local Backup</div>
+              <div class="settings-card-desc">Export all your data as a JSON file to keep on your device, or import a previously exported backup.</div>
+              <div class="settings-card-actions">
+                <button class="settings-btn-action" id="settingsExportBtn">⬇ Export to File</button>
+                <button class="settings-btn-action" id="settingsImportBtn">⬆ Import from File</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">App Appearance</div>
+
+            <div class="settings-card">
+              <div class="settings-card-title">Theme</div>
+              <div class="settings-card-desc">Choose between dark and light mode for the application.</div>
+              <div class="theme-toggle">
+                <button class="theme-option ${this.theme === 'dark' ? 'active' : ''}" id="themeDarkBtn">
+                  <span class="theme-option-icon">🌙</span>
+                  Dark
+                </button>
+                <button class="theme-option ${this.theme === 'light' ? 'active' : ''}" id="themeLightBtn">
+                  <span class="theme-option-icon">☀</span>
+                  Light
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    `;
   }
 
   private getFileEmoji(mimeType: string): string {

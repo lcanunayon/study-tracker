@@ -122,3 +122,22 @@ export async function loadUserModules(userId: string): Promise<object[] | null> 
   if (!data['modulesJson']) return null;
   return JSON.parse(data['modulesJson']) as object[];
 }
+
+export async function saveUserBackup(userId: string, modules: object[]): Promise<void> {
+  const prepared = await prepareForFirestore(modules);
+  await setDoc(doc(db, 'backups', userId), {
+    modulesJson: JSON.stringify(prepared),
+    backedUpAt: Date.now(),
+  });
+}
+
+export async function loadUserBackup(userId: string): Promise<{ modules: object[]; backedUpAt: number } | null> {
+  const snap = await getDoc(doc(db, 'backups', userId));
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  if (!data['modulesJson']) return null;
+  return {
+    modules: JSON.parse(data['modulesJson']) as object[],
+    backedUpAt: data['backedUpAt'] as number,
+  };
+}
