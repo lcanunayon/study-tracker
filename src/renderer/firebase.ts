@@ -107,37 +107,43 @@ async function prepareForFirestore(modules: object[]): Promise<object[]> {
   return out;
 }
 
-export async function saveUserModules(userId: string, modules: object[]): Promise<void> {
+export async function saveUserModules(userId: string, modules: object[], archiveGroups: object[] = []): Promise<void> {
   const prepared = await prepareForFirestore(modules);
   await setDoc(doc(db, 'users', userId), {
     modulesJson: JSON.stringify(prepared),
+    archiveGroupsJson: JSON.stringify(archiveGroups),
     updatedAt: Date.now(),
   });
 }
 
-export async function loadUserModules(userId: string): Promise<object[] | null> {
+export async function loadUserModules(userId: string): Promise<{ modules: object[]; archiveGroups: object[] } | null> {
   const snap = await getDoc(doc(db, 'users', userId));
   if (!snap.exists()) return null;
   const data = snap.data();
   if (!data['modulesJson']) return null;
-  return JSON.parse(data['modulesJson']) as object[];
+  return {
+    modules: JSON.parse(data['modulesJson']) as object[],
+    archiveGroups: data['archiveGroupsJson'] ? (JSON.parse(data['archiveGroupsJson']) as object[]) : [],
+  };
 }
 
-export async function saveUserBackup(userId: string, modules: object[]): Promise<void> {
+export async function saveUserBackup(userId: string, modules: object[], archiveGroups: object[] = []): Promise<void> {
   const prepared = await prepareForFirestore(modules);
   await setDoc(doc(db, 'backups', userId), {
     modulesJson: JSON.stringify(prepared),
+    archiveGroupsJson: JSON.stringify(archiveGroups),
     backedUpAt: Date.now(),
   });
 }
 
-export async function loadUserBackup(userId: string): Promise<{ modules: object[]; backedUpAt: number } | null> {
+export async function loadUserBackup(userId: string): Promise<{ modules: object[]; archiveGroups: object[]; backedUpAt: number } | null> {
   const snap = await getDoc(doc(db, 'backups', userId));
   if (!snap.exists()) return null;
   const data = snap.data();
   if (!data['modulesJson']) return null;
   return {
     modules: JSON.parse(data['modulesJson']) as object[],
+    archiveGroups: data['archiveGroupsJson'] ? (JSON.parse(data['archiveGroupsJson']) as object[]) : [],
     backedUpAt: data['backedUpAt'] as number,
   };
 }

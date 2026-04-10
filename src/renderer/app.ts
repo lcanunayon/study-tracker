@@ -1,6 +1,12 @@
 import { auth, fbSignIn, fbSignUp, fbSignOut, onAuthStateChanged, saveUserModules, loadUserModules, saveUserBackup, loadUserBackup } from './firebase';
 import type { User } from './firebase';
 
+interface ArchiveGroup {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
 interface Module {
   id: string;
   name: string;
@@ -9,6 +15,8 @@ interface Module {
   createdAt: number;
   workspace?: WorkspaceData;
   studyTime?: number; // total seconds studied, persisted across sessions
+  archived?: boolean;
+  archiveGroupId?: string;
 }
 
 interface FolderFile {
@@ -58,14 +66,21 @@ interface WorkspaceData {
 
 class StudyTrackerApp {
   private modules: Module[] = [];
+  private archiveGroups: ArchiveGroup[] = [];
   private currentModule: Module | null = null;
   private isDetailView = false;
   private isEditMode = false;
+  private isArchiveView = false;
   private editingModuleId: string | null = null;
   private draggedModule: Module | null = null;
   private storageKey = 'study-tracker-modules';
+  private archiveStorageKey = 'study-tracker-archive-groups';
   private storageUidKey = 'study-tracker-uid';
   private detailViewAnimDone = false;
+  // Archive modal state
+  private currentArchivingModuleId: string | null = null;
+  private currentRenamingGroupId: string | null = null;
+  private currentMovingModuleId: string | null = null;
 
   // Settings & theme
   private isSettingsView = false;
@@ -147,17 +162,22 @@ class StudyTrackerApp {
         const isSameUser = storedUid === user.uid;
         try {
           const cloud = await loadUserModules(user.uid);
-          const cloudModules = cloud as Module[] | null;
+          const cloudModules = cloud?.modules as Module[] | null;
+          const cloudArchiveGroups = (cloud?.archiveGroups as ArchiveGroup[]) ?? [];
           if (!isSameUser) {
             // Switching accounts — cloud data is authoritative
             if (cloudModules && cloudModules.length > 0) {
               this.modules = cloudModules;
+              this.archiveGroups = cloudArchiveGroups;
             } else {
               this.modules = [];
+              this.archiveGroups = [];
               localStorage.removeItem(this.storageKey);
+              localStorage.removeItem(this.archiveStorageKey);
             }
             localStorage.setItem(this.storageUidKey, user.uid);
             localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+            localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
             this.undoStack = [];
             this.pushHistory();
           } else if (cloudModules && cloudModules.length > 0) {
@@ -169,7 +189,9 @@ class StudyTrackerApp {
             const cloudLatest = cloudModules.reduce((max, m) => Math.max(max, m.createdAt), 0);
             if (localIsEmpty || cloudHasMore || cloudLatest > localLatest) {
               this.modules = cloudModules;
+              this.archiveGroups = cloudArchiveGroups;
               localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+              localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
               this.undoStack = [];
               this.pushHistory();
             } else {
@@ -181,12 +203,13 @@ class StudyTrackerApp {
           // Same user + no cloud data: keep localStorage as-is
         } catch (e) {
           console.error('Firestore load failed:', e);
-          if (!isSameUser) this.modules = []; // don't leak another user's data
+          if (!isSameUser) { this.modules = []; this.archiveGroups = []; } // don't leak another user's data
         }
       } else {
         // Logged out — preserve localStorage so same user can restore on next login
         this.currentModule = null;
         this.isDetailView = false;
+        this.isArchiveView = false;
       }
       this.authReady = true;
       this.render();
@@ -267,6 +290,56 @@ class StudyTrackerApp {
               <span id="lightboxZoomLevel">100%</span>
               <button id="lightboxRotateLeft">↺</button>
               <button id="lightboxRotateRight">↻</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Archive module modal -->
+        <div class="modal-overlay" id="archiveModuleOverlay" style="display: none;">
+          <div class="modal" id="archiveModuleModal">
+            <h2>Archive Module</h2>
+            <p class="archive-modal-subtitle">Archiving: <strong id="archivingModuleName"></strong></p>
+            <div class="form-group">
+              <label for="archiveGroupSelect">Archive Group</label>
+              <select id="archiveGroupSelect" class="archive-select"></select>
+            </div>
+            <div class="form-group" id="archiveNewGroupRow" style="display:none;">
+              <label for="archiveNewGroupInput">New Group Name</label>
+              <input type="text" id="archiveNewGroupInput" placeholder="e.g., Semester 1">
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" id="archiveCancelBtn">Cancel</button>
+              <button type="button" class="btn btn-primary" id="archiveConfirmBtn">Archive</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Archive group create/rename modal -->
+        <div class="modal-overlay" id="archiveGroupOverlay" style="display: none;">
+          <div class="modal" id="archiveGroupModal">
+            <h2 id="archiveGroupModalTitle">New Archive Group</h2>
+            <div class="form-group">
+              <label for="archiveGroupNameInput">Group Name</label>
+              <input type="text" id="archiveGroupNameInput" placeholder="e.g., Semester 1">
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" id="archiveGroupCancelBtn">Cancel</button>
+              <button type="button" class="btn btn-primary" id="archiveGroupConfirmBtn">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Move-to-group modal -->
+        <div class="modal-overlay" id="moveGroupOverlay" style="display: none;">
+          <div class="modal" id="moveGroupModal">
+            <h2>Move to Archive Group</h2>
+            <div class="form-group">
+              <label for="moveGroupSelect">Select Group</label>
+              <select id="moveGroupSelect" class="archive-select"></select>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" id="moveGroupCancelBtn">Cancel</button>
+              <button type="button" class="btn btn-primary" id="moveGroupConfirmBtn">Move</button>
             </div>
           </div>
         </div>
@@ -546,6 +619,11 @@ class StudyTrackerApp {
       ];
       this.saveModules();
     }
+    // Load archive groups
+    const storedGroups = localStorage.getItem(this.archiveStorageKey);
+    if (storedGroups) {
+      this.archiveGroups = JSON.parse(storedGroups);
+    }
   }
 
   private generateGradient(color1: string, color2: string): string {
@@ -567,6 +645,7 @@ class StudyTrackerApp {
 
   private saveModules(): void {
     localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+    localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
     if (this.currentUser) {
       localStorage.setItem(this.storageUidKey, this.currentUser.uid);
       if (this.fbSyncTimer) clearTimeout(this.fbSyncTimer);
@@ -577,7 +656,7 @@ class StudyTrackerApp {
   private async syncToFirestore(): Promise<void> {
     if (!this.currentUser) return;
     try {
-      await saveUserModules(this.currentUser.uid, this.modules);
+      await saveUserModules(this.currentUser.uid, this.modules, this.archiveGroups);
     } catch (err) {
       console.error('Firestore sync failed:', err);
     }
@@ -585,7 +664,7 @@ class StudyTrackerApp {
 
   private pushHistory(): void {
     try {
-      const snapshot = JSON.stringify(this.modules);
+      const snapshot = JSON.stringify({ modules: this.modules, archiveGroups: this.archiveGroups });
       const last = this.undoStack[this.undoStack.length - 1];
       if (last === snapshot) return; // avoid duplicates
       this.undoStack.push(snapshot);
@@ -598,6 +677,21 @@ class StudyTrackerApp {
     }
   }
 
+  private restoreSnapshot(snapshot: string): void {
+    try {
+      const parsed = JSON.parse(snapshot);
+      // Support both new format { modules, archiveGroups } and old format (plain array)
+      if (Array.isArray(parsed)) {
+        this.modules = parsed;
+      } else {
+        this.modules = parsed.modules ?? [];
+        this.archiveGroups = parsed.archiveGroups ?? [];
+      }
+    } catch (err) {
+      console.error('Failed to restore snapshot', err);
+    }
+  }
+
   private undo(): void {
     if (this.undoStack.length < 2) return; // nothing to undo
     // Move current state to redo
@@ -606,7 +700,7 @@ class StudyTrackerApp {
     const prev = this.undoStack[this.undoStack.length - 1];
     if (!prev) return;
     try {
-      this.modules = JSON.parse(prev);
+      this.restoreSnapshot(prev);
       // restore currentModule reference if possible
       if (this.currentModule) {
         const found = this.modules.find((m) => m.id === this.currentModule!.id);
@@ -624,7 +718,7 @@ class StudyTrackerApp {
     if (this.redoStack.length === 0) return;
     const next = this.redoStack.pop()!;
     try {
-      this.modules = JSON.parse(next);
+      this.restoreSnapshot(next);
       // push restored state into undo stack as current
       this.undoStack.push(next);
       if (this.currentModule) {
@@ -649,6 +743,8 @@ class StudyTrackerApp {
       container.innerHTML = this.renderAuthView();
     } else if (this.isSettingsView) {
       container.innerHTML = this.renderSettingsView();
+    } else if (this.isArchiveView) {
+      container.innerHTML = this.renderArchiveView();
     } else if (this.isDetailView && this.currentModule) {
       container.innerHTML = this.renderDetailView();
       // Suppress the slideIn animation on re-renders (undo/redo) — only play it on fresh opens
@@ -704,6 +800,8 @@ class StudyTrackerApp {
   }
 
   private renderMainView(): string {
+    const visibleModules = this.modules.filter((m) => !m.archived);
+    const archivedCount = this.modules.filter((m) => m.archived).length;
     return `
       <div class="header">
         <h1>Workspaces</h1>
@@ -714,6 +812,9 @@ class StudyTrackerApp {
             ${this.isEditMode ? '✓ Done' : '✎ Edit'}
           </button>
           <button class="add-module-btn" id="addModuleBtn">+ New Module</button>
+          <button class="archive-nav-btn" id="openArchiveBtn" title="View Archive">
+            📦 Archive${archivedCount > 0 ? ` <span class="archive-badge">${archivedCount}</span>` : ''}
+          </button>
           <div class="header-divider"></div>
           <span class="user-email-display" title="${this.escapeHtml(this.currentUser?.email || '')}">${this.escapeHtml(this.currentUser?.email || '')}</span>
           <button class="logout-btn" id="logoutBtn">Sign Out</button>
@@ -722,14 +823,14 @@ class StudyTrackerApp {
       <div class="main-content">
         <div class="module-grid" id="moduleGrid" ${this.isEditMode ? 'data-edit-mode="true"' : ''}>
           ${
-            this.modules.length === 0
+            visibleModules.length === 0
               ? `
               <div class="empty-state">
                 <div class="empty-state-icon">📚</div>
                 <div class="empty-state-text">No modules yet. Create your first module to get started!</div>
               </div>
             `
-              : this.modules.map((module) => this.renderModuleCard(module)).join('')
+              : visibleModules.map((module) => this.renderModuleCard(module)).join('')
           }
         </div>
       </div>
@@ -739,14 +840,17 @@ class StudyTrackerApp {
 
   private renderModuleCard(module: Module): string {
     const hasImage = module.image && module.image.startsWith('data:');
-    
+    const archiveBtn = this.isEditMode
+      ? `<button class="archive-module-btn" data-module-id="${module.id}" title="Archive module">📦</button>`
+      : '';
+
     if (hasImage) {
-      // Card with image background
       return `
         <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
           ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
           ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
           ${this.isEditMode ? `<button class="edit-module-btn" data-module-id="${module.id}" title="Edit module">✎</button>` : ''}
+          ${archiveBtn}
           <img class="card-background" src="${module.image}" alt="${module.name}">
           <div class="card-overlay"></div>
           <div class="card-content">
@@ -757,12 +861,12 @@ class StudyTrackerApp {
       `;
     } else {
       const gradient = this.getPlaceholderGradient(module.id);
-      // Card without image - animated gradient placeholder with icon and title
       return `
         <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
           ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
           ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
           ${this.isEditMode ? `<button class="edit-module-btn" data-module-id="${module.id}" title="Edit module">✎</button>` : ''}
+          ${archiveBtn}
           <div class="card-placeholder" style="background-image: ${gradient};">
             <div class="card-placeholder-icon">📚</div>
             <div class="card-title">${this.escapeHtml(module.name)}</div>
@@ -772,6 +876,284 @@ class StudyTrackerApp {
       `;
     }
   }
+
+  // ─── Archive View ─────────────────────────────────────────────────────────────
+
+  private renderArchiveView(): string {
+    const archivedModules = this.modules.filter((m) => m.archived);
+
+    const renderArchivedCard = (module: Module): string => {
+      const hasImage = module.image && module.image.startsWith('data:');
+      const bg = hasImage
+        ? `<img class="card-background" src="${module.image}" alt="${module.name}"><div class="card-overlay"></div>`
+        : `<div class="card-placeholder" style="background-image:${this.getPlaceholderGradient(module.id)};"></div>`;
+      return `
+        <div class="module-card archive-module-card" data-module-id="${module.id}">
+          ${bg}
+          <div class="card-content">
+            <div class="card-title">${this.escapeHtml(module.name)}</div>
+            <div class="card-description">${this.escapeHtml(module.description)}</div>
+          </div>
+          <div class="archive-card-actions">
+            <button class="archive-card-btn restore-btn" data-module-id="${module.id}" title="Restore to Workspaces">↩ Restore</button>
+            <button class="archive-card-btn move-group-btn" data-module-id="${module.id}" title="Move to another group">⇄ Move</button>
+          </div>
+        </div>
+      `;
+    };
+
+    const renderGroup = (group: ArchiveGroup): string => {
+      const groupModules = archivedModules.filter((m) => m.archiveGroupId === group.id);
+      return `
+        <div class="archive-section" data-group-id="${group.id}">
+          <div class="archive-section-header">
+            <span class="archive-group-name">${this.escapeHtml(group.name)}</span>
+            <span class="archive-group-count">${groupModules.length} module${groupModules.length !== 1 ? 's' : ''}</span>
+            <div class="archive-group-actions">
+              <button class="archive-group-action-btn rename-group-btn" data-group-id="${group.id}" title="Rename group">✎ Rename</button>
+              <button class="archive-group-action-btn delete-group-btn" data-group-id="${group.id}" title="Delete group">✕ Delete</button>
+            </div>
+          </div>
+          <div class="archive-modules-grid">
+            ${groupModules.length > 0
+              ? groupModules.map(renderArchivedCard).join('')
+              : `<div class="archive-empty-group">No modules in this group</div>`
+            }
+          </div>
+        </div>
+      `;
+    };
+
+    // Modules archived without a group (ungrouped)
+    const ungrouped = archivedModules.filter(
+      (m) => !m.archiveGroupId || !this.archiveGroups.find((g) => g.id === m.archiveGroupId)
+    );
+
+    return `
+      <div class="archive-view">
+        <div class="header">
+          <div class="archive-header-left">
+            <button class="back-btn" id="archiveBackBtn">←</button>
+            <h1>Archive</h1>
+          </div>
+          <div class="header-buttons">
+            <button class="add-module-btn" id="newArchiveGroupBtn">+ New Group</button>
+            <div class="header-divider"></div>
+            <span class="user-email-display" title="${this.escapeHtml(this.currentUser?.email || '')}">${this.escapeHtml(this.currentUser?.email || '')}</span>
+          </div>
+        </div>
+
+        <div class="archive-content">
+          ${this.archiveGroups.length === 0 && archivedModules.length === 0
+            ? `<div class="empty-state">
+                <div class="empty-state-icon">📦</div>
+                <div class="empty-state-text">No archived modules yet.<br>Archive modules from Workspaces using Edit mode.</div>
+              </div>`
+            : ''
+          }
+
+          ${this.archiveGroups.map(renderGroup).join('')}
+
+          ${ungrouped.length > 0 ? `
+            <div class="archive-section archive-section-ungrouped">
+              <div class="archive-section-header">
+                <span class="archive-group-name">Ungrouped</span>
+                <span class="archive-group-count">${ungrouped.length} module${ungrouped.length !== 1 ? 's' : ''}</span>
+              </div>
+              <div class="archive-modules-grid">
+                ${ungrouped.map(renderArchivedCard).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  private openArchiveView(): void {
+    this.isArchiveView = true;
+    this.isEditMode = false;
+    this.render();
+  }
+
+  private closeArchiveView(): void {
+    this.isArchiveView = false;
+    this.render();
+  }
+
+  // Open the archive-module modal for a given module
+  private openArchiveModuleModal(moduleId: string): void {
+    const module = this.modules.find((m) => m.id === moduleId);
+    if (!module) return;
+    this.currentArchivingModuleId = moduleId;
+
+    const overlay = document.getElementById('archiveModuleOverlay') as HTMLElement;
+    const nameEl = document.getElementById('archivingModuleName') as HTMLElement;
+    const select = document.getElementById('archiveGroupSelect') as HTMLSelectElement;
+    const newGroupRow = document.getElementById('archiveNewGroupRow') as HTMLElement;
+    const newGroupInput = document.getElementById('archiveNewGroupInput') as HTMLInputElement;
+
+    nameEl.textContent = module.name;
+    newGroupRow.style.display = 'none';
+    newGroupInput.value = '';
+
+    // Populate select
+    select.innerHTML = this.archiveGroups
+      .map((g) => `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`)
+      .join('');
+    select.innerHTML += `<option value="__new__">+ Create new group…</option>`;
+
+    select.onchange = () => {
+      newGroupRow.style.display = select.value === '__new__' ? '' : 'none';
+    };
+
+    overlay.style.display = 'flex';
+
+    document.getElementById('archiveCancelBtn')!.onclick = () => {
+      overlay.style.display = 'none';
+      this.currentArchivingModuleId = null;
+    };
+
+    document.getElementById('archiveConfirmBtn')!.onclick = () => this.confirmArchiveModule();
+  }
+
+  private confirmArchiveModule(): void {
+    const moduleId = this.currentArchivingModuleId;
+    if (!moduleId) return;
+
+    const select = document.getElementById('archiveGroupSelect') as HTMLSelectElement;
+    const newGroupInput = document.getElementById('archiveNewGroupInput') as HTMLInputElement;
+    const overlay = document.getElementById('archiveModuleOverlay') as HTMLElement;
+
+    let groupId = select.value;
+
+    if (groupId === '__new__') {
+      const name = newGroupInput.value.trim();
+      if (!name) { newGroupInput.focus(); return; }
+      const newGroup: ArchiveGroup = { id: `ag-${Date.now()}`, name, createdAt: Date.now() };
+      this.archiveGroups.push(newGroup);
+      groupId = newGroup.id;
+    }
+
+    const module = this.modules.find((m) => m.id === moduleId);
+    if (module) {
+      module.archived = true;
+      module.archiveGroupId = groupId;
+    }
+
+    overlay.style.display = 'none';
+    this.currentArchivingModuleId = null;
+    this.pushHistory();
+    this.saveModules();
+    this.render();
+  }
+
+  private unarchiveModule(moduleId: string): void {
+    const module = this.modules.find((m) => m.id === moduleId);
+    if (!module) return;
+    module.archived = false;
+    module.archiveGroupId = undefined;
+    this.pushHistory();
+    this.saveModules();
+    this.render();
+  }
+
+  // Open the move-to-group modal for an archived module
+  private openMoveGroupModal(moduleId: string): void {
+    if (this.archiveGroups.length === 0) {
+      alert('Create an archive group first before moving modules.');
+      return;
+    }
+    this.currentMovingModuleId = moduleId;
+
+    const module = this.modules.find((m) => m.id === moduleId);
+    const overlay = document.getElementById('moveGroupOverlay') as HTMLElement;
+    const select = document.getElementById('moveGroupSelect') as HTMLSelectElement;
+
+    select.innerHTML = this.archiveGroups
+      .map((g) => `<option value="${g.id}" ${module?.archiveGroupId === g.id ? 'selected' : ''}>${this.escapeHtml(g.name)}</option>`)
+      .join('');
+
+    overlay.style.display = 'flex';
+
+    document.getElementById('moveGroupCancelBtn')!.onclick = () => {
+      overlay.style.display = 'none';
+      this.currentMovingModuleId = null;
+    };
+
+    document.getElementById('moveGroupConfirmBtn')!.onclick = () => {
+      const mod = this.modules.find((m) => m.id === this.currentMovingModuleId);
+      if (mod) {
+        mod.archiveGroupId = select.value;
+        this.saveModules();
+        this.render();
+      }
+      overlay.style.display = 'none';
+      this.currentMovingModuleId = null;
+    };
+  }
+
+  // Open create/rename archive group modal
+  private openArchiveGroupModal(groupId?: string): void {
+    this.currentRenamingGroupId = groupId ?? null;
+    const overlay = document.getElementById('archiveGroupOverlay') as HTMLElement;
+    const title = document.getElementById('archiveGroupModalTitle') as HTMLElement;
+    const input = document.getElementById('archiveGroupNameInput') as HTMLInputElement;
+
+    if (groupId) {
+      const group = this.archiveGroups.find((g) => g.id === groupId);
+      title.textContent = 'Rename Group';
+      input.value = group?.name ?? '';
+    } else {
+      title.textContent = 'New Archive Group';
+      input.value = '';
+    }
+
+    overlay.style.display = 'flex';
+    setTimeout(() => input.focus(), 50);
+
+    document.getElementById('archiveGroupCancelBtn')!.onclick = () => {
+      overlay.style.display = 'none';
+      this.currentRenamingGroupId = null;
+    };
+
+    document.getElementById('archiveGroupConfirmBtn')!.onclick = () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+
+      if (this.currentRenamingGroupId) {
+        const group = this.archiveGroups.find((g) => g.id === this.currentRenamingGroupId);
+        if (group) group.name = name;
+      } else {
+        this.archiveGroups.push({ id: `ag-${Date.now()}`, name, createdAt: Date.now() });
+      }
+
+      overlay.style.display = 'none';
+      this.currentRenamingGroupId = null;
+      this.saveModules();
+      this.render();
+    };
+  }
+
+  private deleteArchiveGroup(groupId: string): void {
+    const group = this.archiveGroups.find((g) => g.id === groupId);
+    if (!group) return;
+    const modulesInGroup = this.modules.filter((m) => m.archiveGroupId === groupId);
+    const msg = modulesInGroup.length > 0
+      ? `Delete group "${group.name}"? The ${modulesInGroup.length} module(s) inside will become ungrouped (not deleted).`
+      : `Delete group "${group.name}"?`;
+
+    if (!confirm(msg)) return;
+
+    // Ungroup modules
+    modulesInGroup.forEach((m) => { m.archiveGroupId = undefined; });
+    this.archiveGroups = this.archiveGroups.filter((g) => g.id !== groupId);
+    this.pushHistory();
+    this.saveModules();
+    this.render();
+  }
+
+  // ─── End Archive View ─────────────────────────────────────────────────────────
 
   private renderDetailView(): string {
     if (!this.currentModule) return '';
@@ -923,9 +1305,61 @@ class StudyTrackerApp {
       addModuleBtn.addEventListener('click', () => this.openAddModuleModal());
     }
 
+    // Archive navigation button (main view → archive view)
+    const openArchiveBtn = document.getElementById('openArchiveBtn');
+    if (openArchiveBtn) {
+      openArchiveBtn.addEventListener('click', () => this.openArchiveView());
+    }
+
+    // Archive view back button
+    const archiveBackBtn = document.getElementById('archiveBackBtn');
+    if (archiveBackBtn) {
+      archiveBackBtn.addEventListener('click', () => this.closeArchiveView());
+    }
+
+    // New archive group button (in archive view)
+    const newArchiveGroupBtn = document.getElementById('newArchiveGroupBtn');
+    if (newArchiveGroupBtn) {
+      newArchiveGroupBtn.addEventListener('click', () => this.openArchiveGroupModal());
+    }
+
+    // Archive group action buttons (rename / delete)
+    document.querySelectorAll('.rename-group-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const groupId = (btn as HTMLElement).dataset.groupId;
+        if (groupId) this.openArchiveGroupModal(groupId);
+      });
+    });
+
+    document.querySelectorAll('.delete-group-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const groupId = (btn as HTMLElement).dataset.groupId;
+        if (groupId) this.deleteArchiveGroup(groupId);
+      });
+    });
+
+    // Restore and move buttons on archived module cards
+    document.querySelectorAll('.restore-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const moduleId = (btn as HTMLElement).dataset.moduleId;
+        if (moduleId) this.unarchiveModule(moduleId);
+      });
+    });
+
+    document.querySelectorAll('.move-group-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const moduleId = (btn as HTMLElement).dataset.moduleId;
+        if (moduleId) this.openMoveGroupModal(moduleId);
+      });
+    });
+
     // Module card clicks (only when not in edit mode)
     if (!this.isEditMode) {
-      const moduleCards = document.querySelectorAll('.module-card');
+      const moduleCards = document.querySelectorAll('.module-card:not(.archive-module-card)');
       moduleCards.forEach((card) => {
         card.addEventListener('click', (e) => {
           if ((e.target as HTMLElement).closest('.delete-btn')) return; // Don't open detail view if clicking delete
@@ -951,6 +1385,16 @@ class StudyTrackerApp {
           e.stopPropagation();
           const moduleId = (btn as HTMLElement).dataset.moduleId;
           if (moduleId) this.openEditModuleModal(moduleId);
+        });
+      });
+
+      // Archive module button handlers (only in edit mode)
+      const archiveModuleBtns = document.querySelectorAll('.archive-module-btn');
+      archiveModuleBtns.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const moduleId = (btn as HTMLElement).dataset.moduleId;
+          if (moduleId) this.openArchiveModuleModal(moduleId);
         });
       });
 
@@ -3736,7 +4180,7 @@ class StudyTrackerApp {
   // ─── Backup ──────────────────────────────────────────────────────────────────
 
   private exportBackupFile(): void {
-    const data = JSON.stringify(this.modules, null, 2);
+    const data = JSON.stringify({ modules: this.modules, archiveGroups: this.archiveGroups }, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -3759,11 +4203,18 @@ class StudyTrackerApp {
       reader.onload = (ev) => {
         try {
           const parsed = JSON.parse(ev.target?.result as string);
-          if (!Array.isArray(parsed)) throw new Error('Invalid format');
-          this.modules = parsed;
+          // Support both new { modules, archiveGroups } format and legacy plain array
+          if (Array.isArray(parsed)) {
+            this.modules = parsed;
+          } else if (parsed && Array.isArray(parsed.modules)) {
+            this.modules = parsed.modules;
+            this.archiveGroups = Array.isArray(parsed.archiveGroups) ? parsed.archiveGroups : [];
+          } else {
+            throw new Error('Invalid format');
+          }
           this.saveModules();
           this.pushHistory();
-          this.backupStatus = `success:Imported ${parsed.length} module(s) successfully.`;
+          this.backupStatus = `success:Imported ${this.modules.length} module(s) successfully.`;
         } catch {
           this.backupStatus = 'error:Invalid backup file.';
         }
@@ -3783,7 +4234,7 @@ class StudyTrackerApp {
     this.backupStatus = 'loading:Creating backup…';
     this.render();
     try {
-      await saveUserBackup(this.currentUser.uid, this.modules);
+      await saveUserBackup(this.currentUser.uid, this.modules, this.archiveGroups);
       this.lastCloudBackupTime = Date.now();
       this.backupStatus = `success:Cloud backup created at ${new Date().toLocaleTimeString()}.`;
     } catch {
@@ -3798,7 +4249,7 @@ class StudyTrackerApp {
       this.render();
       return;
     }
-    if (!confirm('Restore cloud backup? This will replace your current modules.')) return;
+    if (!confirm('Restore cloud backup? This will replace your current modules and archive.')) return;
     this.backupStatus = 'loading:Restoring backup…';
     this.render();
     try {
@@ -3807,6 +4258,7 @@ class StudyTrackerApp {
         this.backupStatus = 'error:No cloud backup found for this account.';
       } else {
         this.modules = result.modules as Module[];
+        this.archiveGroups = (result.archiveGroups as ArchiveGroup[]) ?? [];
         this.saveModules();
         this.pushHistory();
         this.backupStatus = `success:Restored ${result.modules.length} module(s) from backup.`;
