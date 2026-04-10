@@ -743,14 +743,14 @@ class StudyTrackerApp {
       container.innerHTML = this.renderAuthView();
     } else if (this.isSettingsView) {
       container.innerHTML = this.renderSettingsView();
-    } else if (this.isArchiveView) {
-      container.innerHTML = this.renderArchiveView();
     } else if (this.isDetailView && this.currentModule) {
       container.innerHTML = this.renderDetailView();
       // Suppress the slideIn animation on re-renders (undo/redo) — only play it on fresh opens
       const dv = container.querySelector<HTMLElement>('.detail-view');
       if (dv && this.detailViewAnimDone) dv.style.animation = 'none';
       this.detailViewAnimDone = true;
+    } else if (this.isArchiveView) {
+      container.innerHTML = this.renderArchiveView();
     } else {
       container.innerHTML = this.renderMainView();
     }
@@ -994,18 +994,27 @@ class StudyTrackerApp {
     const newGroupInput = document.getElementById('archiveNewGroupInput') as HTMLInputElement;
 
     nameEl.textContent = module.name;
-    newGroupRow.style.display = 'none';
     newGroupInput.value = '';
 
-    // Populate select
+    // Populate the group dropdown
+    const hasGroups = this.archiveGroups.length > 0;
     select.innerHTML = this.archiveGroups
       .map((g) => `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`)
       .join('');
     select.innerHTML += `<option value="__new__">+ Create new group…</option>`;
 
-    select.onchange = () => {
-      newGroupRow.style.display = select.value === '__new__' ? '' : 'none';
+    // When no existing groups exist, pre-select the "new" option
+    if (!hasGroups) select.value = '__new__';
+
+    // Sync the name-input row visibility with the current select value — called
+    // immediately (fixes the no-groups case) and on every subsequent change.
+    const syncVisibility = () => {
+      const isNew = select.value === '__new__';
+      newGroupRow.style.display = isNew ? '' : 'none';
+      if (isNew) setTimeout(() => newGroupInput.focus(), 30);
     };
+    syncVisibility();
+    select.onchange = syncVisibility;
 
     overlay.style.display = 'flex';
 
@@ -1029,7 +1038,13 @@ class StudyTrackerApp {
 
     if (groupId === '__new__') {
       const name = newGroupInput.value.trim();
-      if (!name) { newGroupInput.focus(); return; }
+      if (!name) {
+        newGroupInput.focus();
+        newGroupInput.style.borderColor = '#ff3b30';
+        newGroupInput.placeholder = 'Group name is required';
+        setTimeout(() => { newGroupInput.style.borderColor = ''; }, 1500);
+        return;
+      }
       const newGroup: ArchiveGroup = { id: `ag-${Date.now()}`, name, createdAt: Date.now() };
       this.archiveGroups.push(newGroup);
       groupId = newGroup.id;
@@ -1140,13 +1155,13 @@ class StudyTrackerApp {
     if (!group) return;
     const modulesInGroup = this.modules.filter((m) => m.archiveGroupId === groupId);
     const msg = modulesInGroup.length > 0
-      ? `Delete group "${group.name}"? The ${modulesInGroup.length} module(s) inside will become ungrouped (not deleted).`
+      ? `Delete group "${group.name}"? The ${modulesInGroup.length} module(s) inside will be restored to your Workspaces.`
       : `Delete group "${group.name}"?`;
 
     if (!confirm(msg)) return;
 
-    // Ungroup modules
-    modulesInGroup.forEach((m) => { m.archiveGroupId = undefined; });
+    // Restore modules back to main Workspaces
+    modulesInGroup.forEach((m) => { m.archived = false; m.archiveGroupId = undefined; });
     this.archiveGroups = this.archiveGroups.filter((g) => g.id !== groupId);
     this.pushHistory();
     this.saveModules();
@@ -1354,6 +1369,15 @@ class StudyTrackerApp {
         e.stopPropagation();
         const moduleId = (btn as HTMLElement).dataset.moduleId;
         if (moduleId) this.openMoveGroupModal(moduleId);
+      });
+    });
+
+    // Archive module card clicks — open the module in detail view
+    document.querySelectorAll('.archive-module-card').forEach((card) => {
+      card.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('.archive-card-btn')) return;
+        const moduleId = (card as HTMLElement).dataset.moduleId;
+        if (moduleId) this.openDetailView(moduleId);
       });
     });
 

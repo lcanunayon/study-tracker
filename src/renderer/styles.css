@@ -2054,7 +2054,7 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
   aspect-ratio: 16 / 9;
   border-radius: 10px;
   overflow: hidden;
-  cursor: default;
+  cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.08);
   transition: border-color 0.18s, box-shadow 0.18s;
 }
@@ -2066,6 +2066,29 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
 
 .archive-module-card .card-content {
   padding-bottom: 44px; /* make room for action row */
+}
+
+/* Keep titles readable at the smaller archive card size */
+.archive-module-card .card-title {
+  font-size: 15px;
+  line-height: 1.3;
+  margin-bottom: 4px;
+  letter-spacing: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.archive-module-card .card-description {
+  font-size: 11px;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ── Action buttons overlaid at bottom of archived card ── */
