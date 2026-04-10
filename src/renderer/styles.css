@@ -2065,7 +2065,8 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
 }
 
 .archive-module-card .card-content {
-  padding-bottom: 44px; /* make room for action row */
+  padding: 12px 12px 36px; /* compact padding; bottom clears action bar */
+  min-height: unset;       /* base rule's 150px is too tall for small cards */
 }
 
 /* Keep titles readable at the smaller archive card size */
@@ -2097,6 +2098,7 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 3; /* above card-content (z-index: 2) */
   display: flex;
   gap: 0;
   background: rgba(0, 0, 0, 0.72);

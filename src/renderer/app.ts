@@ -588,6 +588,20 @@ class StudyTrackerApp {
     overlay.style.display = 'none';
   }
 
+  /** Any archived module whose group no longer exists gets restored to main Workspaces. */
+  private cleanupOrphanedArchivedModules(): void {
+    const groupIds = new Set(this.archiveGroups.map((g) => g.id));
+    let changed = false;
+    this.modules.forEach((m) => {
+      if (m.archived && (!m.archiveGroupId || !groupIds.has(m.archiveGroupId))) {
+        m.archived = false;
+        m.archiveGroupId = undefined;
+        changed = true;
+      }
+    });
+    if (changed) this.saveModules();
+  }
+
   private loadModules(): void {
     const stored = localStorage.getItem(this.storageKey);
     if (stored) {
@@ -624,6 +638,8 @@ class StudyTrackerApp {
     if (storedGroups) {
       this.archiveGroups = JSON.parse(storedGroups);
     }
+    // Restore any archived modules whose group no longer exists
+    this.cleanupOrphanedArchivedModules();
   }
 
   private generateGradient(color1: string, color2: string): string {
@@ -924,11 +940,6 @@ class StudyTrackerApp {
       `;
     };
 
-    // Modules archived without a group (ungrouped)
-    const ungrouped = archivedModules.filter(
-      (m) => !m.archiveGroupId || !this.archiveGroups.find((g) => g.id === m.archiveGroupId)
-    );
-
     return `
       <div class="archive-view">
         <div class="header">
@@ -944,27 +955,15 @@ class StudyTrackerApp {
         </div>
 
         <div class="archive-content">
-          ${this.archiveGroups.length === 0 && archivedModules.length === 0
+          ${this.archiveGroups.length === 0
             ? `<div class="empty-state">
                 <div class="empty-state-icon">📦</div>
-                <div class="empty-state-text">No archived modules yet.<br>Archive modules from Workspaces using Edit mode.</div>
+                <div class="empty-state-text">No archive groups yet.<br>Create a group, then archive modules from Workspaces using Edit mode.</div>
               </div>`
             : ''
           }
 
           ${this.archiveGroups.map(renderGroup).join('')}
-
-          ${ungrouped.length > 0 ? `
-            <div class="archive-section archive-section-ungrouped">
-              <div class="archive-section-header">
-                <span class="archive-group-name">Ungrouped</span>
-                <span class="archive-group-count">${ungrouped.length} module${ungrouped.length !== 1 ? 's' : ''}</span>
-              </div>
-              <div class="archive-modules-grid">
-                ${ungrouped.map(renderArchivedCard).join('')}
-              </div>
-            </div>
-          ` : ''}
         </div>
       </div>
     `;
