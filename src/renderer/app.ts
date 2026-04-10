@@ -71,6 +71,9 @@ class StudyTrackerApp {
   private isDetailView = false;
   private isEditMode = false;
   private isArchiveView = false;
+  private isSelectMode = false;
+  private selectedModuleIds: Set<string> = new Set();
+  private pendingBulkArchiveIds: string[] = [];
   private editingModuleId: string | null = null;
   private draggedModule: Module | null = null;
   private storageKey = 'study-tracker-modules';
@@ -78,7 +81,6 @@ class StudyTrackerApp {
   private storageUidKey = 'study-tracker-uid';
   private detailViewAnimDone = false;
   // Archive modal state
-  private currentArchivingModuleId: string | null = null;
   private currentRenamingGroupId: string | null = null;
   private currentMovingModuleId: string | null = null;
 
@@ -818,19 +820,40 @@ class StudyTrackerApp {
   private renderMainView(): string {
     const visibleModules = this.modules.filter((m) => !m.archived);
     const archivedCount = this.modules.filter((m) => m.archived).length;
+    const selectedCount = this.selectedModuleIds.size;
+
+    const normalHeaderBtns = `
+      <button class="tool-btn header-tool-btn" id="undoBtn" title="Undo">↶ Undo</button>
+      <button class="tool-btn header-tool-btn" id="redoBtn" title="Redo">↷ Redo</button>
+      <button class="edit-mode-btn ${this.isEditMode ? 'active' : ''}" id="editModeBtn">
+        ${this.isEditMode ? '✓ Done' : '✎ Edit'}
+      </button>
+      <button class="select-mode-btn" id="selectModeBtn">◻ Select</button>
+      <button class="add-module-btn" id="addModuleBtn">+ New Module</button>
+      <button class="archive-nav-btn" id="openArchiveBtn" title="View Archive">
+        📦 Archive${archivedCount > 0 ? ` <span class="archive-badge">${archivedCount}</span>` : ''}
+      </button>
+    `;
+
+    const selectHeaderBtns = `
+      <button class="select-mode-btn active" id="selectModeBtn">✕ Cancel</button>
+      <span class="select-header-hint">
+        ${selectedCount > 0 ? `${selectedCount} selected` : 'Tap modules to select'}
+      </span>
+    `;
+
+    const actionPanel = (this.isSelectMode && selectedCount > 0) ? `
+      <div class="select-action-panel">
+        <button class="select-panel-btn archive-panel-btn" id="bulkArchiveBtn">Archive 📦</button>
+        <button class="select-panel-btn delete-panel-btn" id="bulkDeleteBtn">Delete 🗑️</button>
+      </div>
+    ` : '';
+
     return `
       <div class="header">
         <h1>Workspaces</h1>
         <div class="header-buttons">
-          <button class="tool-btn header-tool-btn" id="undoBtn" title="Undo">↶ Undo</button>
-          <button class="tool-btn header-tool-btn" id="redoBtn" title="Redo">↷ Redo</button>
-          <button class="edit-mode-btn ${this.isEditMode ? 'active' : ''}" id="editModeBtn" title="${this.isEditMode ? 'Done Editing' : 'Edit Modules'}">
-            ${this.isEditMode ? '✓ Done' : '✎ Edit'}
-          </button>
-          <button class="add-module-btn" id="addModuleBtn">+ New Module</button>
-          <button class="archive-nav-btn" id="openArchiveBtn" title="View Archive">
-            📦 Archive${archivedCount > 0 ? ` <span class="archive-badge">${archivedCount}</span>` : ''}
-          </button>
+          ${this.isSelectMode ? selectHeaderBtns : normalHeaderBtns}
           <div class="header-divider"></div>
           <span class="user-email-display" title="${this.escapeHtml(this.currentUser?.email || '')}">${this.escapeHtml(this.currentUser?.email || '')}</span>
           <button class="logout-btn" id="logoutBtn">Sign Out</button>
@@ -840,33 +863,42 @@ class StudyTrackerApp {
         <div class="module-grid" id="moduleGrid" ${this.isEditMode ? 'data-edit-mode="true"' : ''}>
           ${
             visibleModules.length === 0
-              ? `
-              <div class="empty-state">
-                <div class="empty-state-icon">📚</div>
-                <div class="empty-state-text">No modules yet. Create your first module to get started!</div>
-              </div>
-            `
+              ? `<div class="empty-state">
+                  <div class="empty-state-icon">📚</div>
+                  <div class="empty-state-text">No modules yet. Create your first module to get started!</div>
+                </div>`
               : visibleModules.map((module) => this.renderModuleCard(module)).join('')
           }
         </div>
       </div>
+      ${actionPanel}
       <button class="settings-fab" id="settingsFabBtn" title="Settings">⚙</button>
     `;
   }
 
   private renderModuleCard(module: Module): string {
     const hasImage = module.image && module.image.startsWith('data:');
-    const archiveBtn = this.isEditMode
-      ? `<button class="archive-module-btn" data-module-id="${module.id}" title="Archive module">📦</button>`
+    const isSelected = this.isSelectMode && this.selectedModuleIds.has(module.id);
+    const cardClasses = [
+      'module-card',
+      this.isSelectMode ? 'select-mode' : '',
+      isSelected ? 'selected' : '',
+    ].filter(Boolean).join(' ');
+
+    const editOverlay = this.isEditMode ? `
+      <div class="drag-handle">☰</div>
+      <button class="delete-btn" data-module-id="${module.id}">✕</button>
+      <button class="edit-module-btn" data-module-id="${module.id}" title="Edit module">✎</button>
+    ` : '';
+
+    const selectionDot = this.isSelectMode
+      ? `<div class="selection-indicator${isSelected ? ' selected' : ''}"></div>`
       : '';
 
     if (hasImage) {
       return `
-        <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
-          ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
-          ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
-          ${this.isEditMode ? `<button class="edit-module-btn" data-module-id="${module.id}" title="Edit module">✎</button>` : ''}
-          ${archiveBtn}
+        <div class="${cardClasses}" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
+          ${editOverlay}${selectionDot}
           <img class="card-background" src="${module.image}" alt="${module.name}">
           <div class="card-overlay"></div>
           <div class="card-content">
@@ -878,11 +910,8 @@ class StudyTrackerApp {
     } else {
       const gradient = this.getPlaceholderGradient(module.id);
       return `
-        <div class="module-card" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
-          ${this.isEditMode ? '<div class="drag-handle">☰</div>' : ''}
-          ${this.isEditMode ? `<button class="delete-btn" data-module-id="${module.id}">✕</button>` : ''}
-          ${this.isEditMode ? `<button class="edit-module-btn" data-module-id="${module.id}" title="Edit module">✎</button>` : ''}
-          ${archiveBtn}
+        <div class="${cardClasses}" data-module-id="${module.id}" ${this.isEditMode ? 'draggable="true"' : ''}>
+          ${editOverlay}${selectionDot}
           <div class="card-placeholder" style="background-image: ${gradient};">
             <div class="card-placeholder-icon">📚</div>
             <div class="card-title">${this.escapeHtml(module.name)}</div>
@@ -891,6 +920,77 @@ class StudyTrackerApp {
         </div>
       `;
     }
+  }
+
+  // ─── Select Mode ──────────────────────────────────────────────────────────────
+
+  private toggleSelectMode(): void {
+    this.isSelectMode = !this.isSelectMode;
+    if (this.isSelectMode) {
+      this.isEditMode = false; // select and edit are mutually exclusive
+    } else {
+      this.selectedModuleIds.clear();
+    }
+    this.render();
+  }
+
+  private toggleModuleSelection(moduleId: string): void {
+    if (this.selectedModuleIds.has(moduleId)) {
+      this.selectedModuleIds.delete(moduleId);
+    } else {
+      this.selectedModuleIds.add(moduleId);
+    }
+    this.render();
+  }
+
+  private deleteSelectedModules(): void {
+    const count = this.selectedModuleIds.size;
+    if (count === 0) return;
+    if (!confirm(`Delete ${count} module${count !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    this.modules = this.modules.filter((m) => !this.selectedModuleIds.has(m.id));
+    this.selectedModuleIds.clear();
+    this.isSelectMode = false;
+    this.pushHistory();
+    this.saveModules();
+    this.render();
+  }
+
+  private openBulkArchiveModal(): void {
+    const ids = [...this.selectedModuleIds];
+    if (ids.length === 0) return;
+    this.pendingBulkArchiveIds = ids;
+
+    const overlay = document.getElementById('archiveModuleOverlay') as HTMLElement;
+    const nameEl = document.getElementById('archivingModuleName') as HTMLElement;
+    const select = document.getElementById('archiveGroupSelect') as HTMLSelectElement;
+    const newGroupRow = document.getElementById('archiveNewGroupRow') as HTMLElement;
+    const newGroupInput = document.getElementById('archiveNewGroupInput') as HTMLInputElement;
+
+    nameEl.textContent = `${ids.length} module${ids.length !== 1 ? 's' : ''}`;
+    newGroupInput.value = '';
+
+    const hasGroups = this.archiveGroups.length > 0;
+    select.innerHTML = this.archiveGroups
+      .map((g) => `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`)
+      .join('');
+    select.innerHTML += `<option value="__new__">+ Create new group…</option>`;
+    if (!hasGroups) select.value = '__new__';
+
+    const syncVisibility = () => {
+      const isNew = select.value === '__new__';
+      newGroupRow.style.display = isNew ? '' : 'none';
+      if (isNew) setTimeout(() => newGroupInput.focus(), 30);
+    };
+    syncVisibility();
+    select.onchange = syncVisibility;
+
+    overlay.style.display = 'flex';
+
+    document.getElementById('archiveCancelBtn')!.onclick = () => {
+      overlay.style.display = 'none';
+      this.pendingBulkArchiveIds = [];
+    };
+    document.getElementById('archiveConfirmBtn')!.onclick = () => this.confirmArchiveModule();
   }
 
   // ─── Archive View ─────────────────────────────────────────────────────────────
@@ -980,54 +1080,8 @@ class StudyTrackerApp {
     this.render();
   }
 
-  // Open the archive-module modal for a given module
-  private openArchiveModuleModal(moduleId: string): void {
-    const module = this.modules.find((m) => m.id === moduleId);
-    if (!module) return;
-    this.currentArchivingModuleId = moduleId;
-
-    const overlay = document.getElementById('archiveModuleOverlay') as HTMLElement;
-    const nameEl = document.getElementById('archivingModuleName') as HTMLElement;
-    const select = document.getElementById('archiveGroupSelect') as HTMLSelectElement;
-    const newGroupRow = document.getElementById('archiveNewGroupRow') as HTMLElement;
-    const newGroupInput = document.getElementById('archiveNewGroupInput') as HTMLInputElement;
-
-    nameEl.textContent = module.name;
-    newGroupInput.value = '';
-
-    // Populate the group dropdown
-    const hasGroups = this.archiveGroups.length > 0;
-    select.innerHTML = this.archiveGroups
-      .map((g) => `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`)
-      .join('');
-    select.innerHTML += `<option value="__new__">+ Create new group…</option>`;
-
-    // When no existing groups exist, pre-select the "new" option
-    if (!hasGroups) select.value = '__new__';
-
-    // Sync the name-input row visibility with the current select value — called
-    // immediately (fixes the no-groups case) and on every subsequent change.
-    const syncVisibility = () => {
-      const isNew = select.value === '__new__';
-      newGroupRow.style.display = isNew ? '' : 'none';
-      if (isNew) setTimeout(() => newGroupInput.focus(), 30);
-    };
-    syncVisibility();
-    select.onchange = syncVisibility;
-
-    overlay.style.display = 'flex';
-
-    document.getElementById('archiveCancelBtn')!.onclick = () => {
-      overlay.style.display = 'none';
-      this.currentArchivingModuleId = null;
-    };
-
-    document.getElementById('archiveConfirmBtn')!.onclick = () => this.confirmArchiveModule();
-  }
-
   private confirmArchiveModule(): void {
-    const moduleId = this.currentArchivingModuleId;
-    if (!moduleId) return;
+    if (this.pendingBulkArchiveIds.length === 0) return;
 
     const select = document.getElementById('archiveGroupSelect') as HTMLSelectElement;
     const newGroupInput = document.getElementById('archiveNewGroupInput') as HTMLInputElement;
@@ -1049,14 +1103,15 @@ class StudyTrackerApp {
       groupId = newGroup.id;
     }
 
-    const module = this.modules.find((m) => m.id === moduleId);
-    if (module) {
-      module.archived = true;
-      module.archiveGroupId = groupId;
-    }
+    this.pendingBulkArchiveIds.forEach((id) => {
+      const m = this.modules.find((m) => m.id === id);
+      if (m) { m.archived = true; m.archiveGroupId = groupId; }
+    });
+    this.pendingBulkArchiveIds = [];
+    this.selectedModuleIds.clear();
+    this.isSelectMode = false;
 
     overlay.style.display = 'none';
-    this.currentArchivingModuleId = null;
     this.pushHistory();
     this.saveModules();
     this.render();
@@ -1380,18 +1435,44 @@ class StudyTrackerApp {
       });
     });
 
-    // Module card clicks (only when not in edit mode)
-    if (!this.isEditMode) {
+    // Select-mode toggle button
+    const selectModeBtn = document.getElementById('selectModeBtn');
+    if (selectModeBtn) {
+      selectModeBtn.addEventListener('click', () => this.toggleSelectMode());
+    }
+
+    // Bulk action panel buttons (only rendered when modules are selected)
+    const bulkArchiveBtn = document.getElementById('bulkArchiveBtn');
+    if (bulkArchiveBtn) {
+      bulkArchiveBtn.addEventListener('click', () => this.openBulkArchiveModal());
+    }
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    if (bulkDeleteBtn) {
+      bulkDeleteBtn.addEventListener('click', () => this.deleteSelectedModules());
+    }
+
+    // Module card clicks
+    if (this.isSelectMode) {
+      // In select mode: clicking a card toggles its selection
+      const moduleCards = document.querySelectorAll('.module-card:not(.archive-module-card)');
+      moduleCards.forEach((card) => {
+        card.addEventListener('click', () => {
+          const moduleId = (card as HTMLElement).dataset.moduleId;
+          if (moduleId) this.toggleModuleSelection(moduleId);
+        });
+      });
+    } else if (!this.isEditMode) {
+      // Normal mode: clicking a card opens the detail view
       const moduleCards = document.querySelectorAll('.module-card:not(.archive-module-card)');
       moduleCards.forEach((card) => {
         card.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('.delete-btn')) return; // Don't open detail view if clicking delete
+          if ((e.target as HTMLElement).closest('.delete-btn')) return;
           const moduleId = (card as HTMLElement).dataset.moduleId;
           this.openDetailView(moduleId!);
         });
       });
     } else {
-      // Delete button handlers (only in edit mode)
+      // Edit mode: delete / rename / drag-drop handlers
       const deleteButtons = document.querySelectorAll('.delete-btn');
       deleteButtons.forEach((btn) => {
         btn.addEventListener('click', (e) => {
@@ -1401,7 +1482,6 @@ class StudyTrackerApp {
         });
       });
 
-      // Edit module button handlers (only in edit mode)
       const editModuleBtns = document.querySelectorAll('.edit-module-btn');
       editModuleBtns.forEach((btn) => {
         btn.addEventListener('click', (e) => {
@@ -1411,17 +1491,6 @@ class StudyTrackerApp {
         });
       });
 
-      // Archive module button handlers (only in edit mode)
-      const archiveModuleBtns = document.querySelectorAll('.archive-module-btn');
-      archiveModuleBtns.forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const moduleId = (btn as HTMLElement).dataset.moduleId;
-          if (moduleId) this.openArchiveModuleModal(moduleId);
-        });
-      });
-
-      // Drag and drop handlers
       const moduleCards = document.querySelectorAll('.module-card');
       moduleCards.forEach((card) => {
         card.addEventListener('dragstart', (e) => this.handleDragStart(e as DragEvent));

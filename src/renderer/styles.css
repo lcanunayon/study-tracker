@@ -1914,30 +1914,138 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
   line-height: 1;
 }
 
-/* Archive button on module card (edit mode) */
-.archive-module-btn {
-  position: absolute;
-  top: 44px;
-  right: 8px;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 200, 80, 0.5);
-  background: rgba(255, 180, 0, 0.18);
-  color: #ffcc44;
-  font-size: 14px;
+/* ── Select mode button ── */
+.select-mode-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.65);
+  padding: 6px 14px;
+  border-radius: 7px;
   cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.select-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.38);
+  color: #fff;
+}
+
+.select-mode-btn.active {
+  background: rgba(255, 59, 48, 0.12);
+  border-color: rgba(255, 59, 48, 0.5);
+  color: #ff3b30;
+}
+
+.select-mode-btn.active:hover {
+  background: rgba(255, 59, 48, 0.2);
+}
+
+.select-header-hint {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 500;
+  align-self: center;
+}
+
+/* ── Selection indicator dot on cards ── */
+.selection-indicator {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 10;
+  pointer-events: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.selection-indicator.selected {
+  background: #00d4ff;
+  border-color: #00d4ff;
+}
+
+.selection-indicator.selected::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
-  transition: background 0.15s, border-color 0.15s;
-  line-height: 1;
+  font-size: 12px;
+  font-weight: 800;
+  color: #000;
+  line-height: 18px;
+  text-align: center;
 }
 
-.archive-module-btn:hover {
-  background: rgba(255, 180, 0, 0.35);
-  border-color: rgba(255, 200, 80, 0.8);
+/* ── Selected card highlight ── */
+.module-card.selected {
+  border: 2px solid #00d4ff !important;
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.18), 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+.module-card.select-mode {
+  cursor: pointer;
+}
+
+/* ── Floating bulk-action panel ── */
+.select-action-panel {
+  position: fixed;
+  right: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 200;
+  animation: selectPanelIn 0.2s ease;
+}
+
+@keyframes selectPanelIn {
+  from { opacity: 0; transform: translateY(-50%) translateX(16px); }
+  to   { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+
+.select-panel-btn {
+  padding: 14px 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 148px;
+  text-align: center;
+  transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.archive-panel-btn {
+  background: rgba(0, 212, 255, 0.1);
+  color: #00d4ff;
+  border: 1px solid rgba(0, 212, 255, 0.38);
+}
+
+.archive-panel-btn:hover {
+  background: rgba(0, 212, 255, 0.2);
+  box-shadow: 0 4px 18px rgba(0, 212, 255, 0.18);
+  transform: translateX(-3px);
+}
+
+.delete-panel-btn {
+  background: rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+  border: 1px solid rgba(255, 59, 48, 0.35);
+}
+
+.delete-panel-btn:hover {
+  background: rgba(255, 59, 48, 0.2);
+  box-shadow: 0 4px 18px rgba(255, 59, 48, 0.14);
+  transform: translateX(-3px);
 }
 
 /* ── Archive view container ── */
@@ -2215,6 +2323,57 @@ body.light-mode .archive-nav-btn:hover {
 body.light-mode .archive-badge {
   background: #0099cc;
   color: #fff;
+}
+
+body.light-mode .select-mode-btn {
+  border-color: rgba(0, 0, 0, 0.18);
+  color: rgba(0, 0, 0, 0.55);
+}
+
+body.light-mode .select-mode-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.35);
+  color: rgba(0, 0, 0, 0.85);
+}
+
+body.light-mode .select-mode-btn.active {
+  background: rgba(255, 59, 48, 0.08);
+  border-color: rgba(255, 59, 48, 0.4);
+  color: #d93025;
+}
+
+body.light-mode .select-header-hint {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+body.light-mode .selection-indicator {
+  border-color: rgba(0, 0, 0, 0.35);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+body.light-mode .module-card.selected {
+  border-color: #0099cc !important;
+  box-shadow: 0 0 0 3px rgba(0, 153, 204, 0.18), 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+body.light-mode .archive-panel-btn {
+  background: rgba(0, 130, 180, 0.08);
+  color: #0077aa;
+  border-color: rgba(0, 130, 180, 0.3);
+}
+
+body.light-mode .archive-panel-btn:hover {
+  background: rgba(0, 130, 180, 0.16);
+}
+
+body.light-mode .delete-panel-btn {
+  background: rgba(255, 59, 48, 0.06);
+  color: #c0392b;
+  border-color: rgba(255, 59, 48, 0.28);
+}
+
+body.light-mode .delete-panel-btn:hover {
+  background: rgba(255, 59, 48, 0.14);
 }
 
 body.light-mode .archive-module-card {
