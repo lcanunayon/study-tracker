@@ -573,6 +573,40 @@ body {
   line-height: 1;
 }
 
+.timer-session-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin-bottom: -4px;
+}
+
+.timer-session-label {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.timer-session-value {
+  color: rgba(0, 212, 255, 0.65);
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+.timer-session-reset {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 3px;
+  transition: color 0.15s;
+}
+
+.timer-session-reset:hover {
+  color: #00d4ff;
+}
+
 .timer-total-row {
   display: flex;
   align-items: center;
@@ -1608,6 +1642,22 @@ body.light-mode .timer-tab:hover {
 body.light-mode .timer-tab.active {
   background: rgba(0, 130, 180, 0.12);
   border-color: rgba(0, 130, 180, 0.48);
+  color: #0077aa;
+}
+
+body.light-mode .timer-session-label {
+  color: rgba(0, 0, 0, 0.28);
+}
+
+body.light-mode .timer-session-value {
+  color: rgba(0, 119, 170, 0.6);
+}
+
+body.light-mode .timer-session-reset {
+  color: rgba(0, 0, 0, 0.2);
+}
+
+body.light-mode .timer-session-reset:hover {
   color: #0077aa;
 }
 

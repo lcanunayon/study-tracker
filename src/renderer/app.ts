@@ -144,6 +144,8 @@ class StudyTrackerApp {
   private pomodoroSecondsLeft = 25 * 60;
   private pomodoroPhaseStartTs = 0; // Date.now() when the current phase began
   private pomodoroLastWorkSec = 0;  // work-seconds already credited this phase (for delta)
+  // Session — non-persisted, resets when opening a module or clicking Reset
+  private sessionSeconds = 0;
 
   constructor() {
     this.theme = (localStorage.getItem('study-tracker-theme') as 'dark' | 'light') || 'dark';
@@ -1254,6 +1256,11 @@ class StudyTrackerApp {
               <div class="timer-body">
                 ${this.timerMode === 'pomodoro' ? `<div class="timer-phase-label ${this.pomodoroPhase === 'work' ? 'phase-work' : 'phase-break'}" id="timerPhaseLabel">${this.pomodoroPhase === 'work' ? '🍅 Work' : '☕ Break'}</div>` : ''}
                 <div class="timer-display" id="timerDisplay">${this.timerMode === 'stopwatch' ? this.formatStopwatch(this.stopwatchSeconds) : this.formatPomodoro(this.pomodoroSecondsLeft)}</div>
+                <div class="timer-session-row">
+                  <span class="timer-session-label">Session</span>
+                  <span class="timer-session-value" id="timerSessionDisplay">${this.formatStopwatch(this.sessionSeconds)}</span>
+                  <button class="timer-session-reset" id="timerSessionReset" title="Reset session">↺</button>
+                </div>
                 <div class="timer-total-row">
                   <span class="timer-total-label">Total studied</span>
                   <span class="timer-total-value" id="timerTotalDisplay" title="Double-click to edit" style="cursor:pointer">${this.formatTotalTime(this.currentModule.studyTime ?? 0)}</span>
@@ -1554,6 +1561,11 @@ class StudyTrackerApp {
             }
           }, 3000);
         }
+      });
+      const timerSessionReset = document.getElementById('timerSessionReset');
+      if (timerSessionReset) timerSessionReset.addEventListener('click', () => {
+        this.sessionSeconds = 0;
+        this.updateSessionDisplay();
       });
       const timerTotal = document.getElementById('timerTotalDisplay');
       if (timerTotal) timerTotal.addEventListener('dblclick', () => this.editTotalTime());
@@ -1908,6 +1920,7 @@ class StudyTrackerApp {
     if (module) {
       this.currentModule = module;
       this.isDetailView = true;
+      this.sessionSeconds = 0;
       this.detailViewAnimDone = false; // allow slideIn animation on fresh open
       if (!module.workspace) {
         module.workspace = {
@@ -4061,16 +4074,19 @@ class StudyTrackerApp {
     this.pomodoroPhase = 'work';
     this.pomodoroSecondsLeft = 25 * 60;
     this.pomodoroLastWorkSec = 0;
-    if (this.currentModule) {
-      this.currentModule.studyTime = 0;
-      this.saveModules();
-    }
+    this.sessionSeconds = 0;
     this.updateTimerDisplay();
     this.updateTimerTotalDisplay();
+    this.updateSessionDisplay();
     const phaseLabel = document.getElementById('timerPhaseLabel');
     if (phaseLabel) {
       phaseLabel.textContent = '🍅 Work';
       phaseLabel.className = 'timer-phase-label phase-work';
+    }
+    const resetBtn = document.getElementById('timerReset');
+    if (resetBtn) {
+      resetBtn.textContent = '↺ Reset';
+      resetBtn.classList.remove('timer-reset-confirm');
     }
   }
 
@@ -4086,6 +4102,7 @@ class StudyTrackerApp {
       this.stopwatchSeconds = newSec;
       if (this.currentModule && delta > 0) {
         this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + delta;
+        this.sessionSeconds += delta;
       }
     } else {
       // Pomodoro — elapsed time since current phase started
@@ -4099,6 +4116,7 @@ class StudyTrackerApp {
           const workDelta = phaseDur - this.pomodoroLastWorkSec;
           if (this.currentModule && workDelta > 0) {
             this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + workDelta;
+            this.sessionSeconds += workDelta;
           }
         }
         phaseElapsed -= phaseDur;
@@ -4116,6 +4134,7 @@ class StudyTrackerApp {
         const workDelta = phaseElapsed - this.pomodoroLastWorkSec;
         if (this.currentModule && workDelta > 0) {
           this.currentModule.studyTime = (this.currentModule.studyTime ?? 0) + workDelta;
+          this.sessionSeconds += workDelta;
         }
         this.pomodoroLastWorkSec = phaseElapsed;
       }
@@ -4127,6 +4146,7 @@ class StudyTrackerApp {
     this.flushTimerState();
     this.updateTimerDisplay();
     this.updateTimerTotalDisplay();
+    this.updateSessionDisplay();
     // Autosave every ~30 s
     if (this.currentModule && this.stopwatchSeconds % 30 === 0 && this.stopwatchSeconds > 0) {
       this.saveModules();
@@ -4146,6 +4166,11 @@ class StudyTrackerApp {
     if (el && el.tagName === 'SPAN' && this.currentModule) {
       el.textContent = this.formatTotalTime(this.currentModule.studyTime ?? 0);
     }
+  }
+
+  private updateSessionDisplay(): void {
+    const el = document.getElementById('timerSessionDisplay');
+    if (el) el.textContent = this.formatStopwatch(this.sessionSeconds);
   }
 
   private editTotalTime(): void {
