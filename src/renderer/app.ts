@@ -64,6 +64,21 @@ interface WorkspaceData {
   connections?: Connection[];
 }
 
+interface RoadmapNode {
+  id: string;
+  itemId: string;
+  label: string;
+  level: number;
+  reason: string;
+  x: number;
+  y: number;
+}
+
+interface RoadmapEdge {
+  from: string;
+  to: string;
+}
+
 class StudyTrackerApp {
   private modules: Module[] = [];
   private archiveGroups: ArchiveGroup[] = [];
@@ -130,6 +145,19 @@ class StudyTrackerApp {
   private folderPopupItemId: string | null = null;
   private dragOverFolderId: string | null = null;
 
+  // Multi-select & AI Roadmap
+  private selectedWorkspaceItems: Set<string> = new Set();
+  private roadmapNodes: RoadmapNode[] = [];
+  private roadmapEdges: RoadmapEdge[] = [];
+  private roadmapTitle = '';
+  private roadmapExplanation = '';
+  private roadmapDragNodeId: string | null = null;
+  private roadmapDragStartX = 0;
+  private roadmapDragStartY = 0;
+  private roadmapNodeStartX = 0;
+  private roadmapNodeStartY = 0;
+  private aiApiKey = '';
+
   // Timer properties
   private timerMode: 'stopwatch' | 'pomodoro' = 'stopwatch';
   private timerRunning = false;
@@ -149,6 +177,7 @@ class StudyTrackerApp {
 
   constructor() {
     this.theme = (localStorage.getItem('study-tracker-theme') as 'dark' | 'light') || 'dark';
+    this.aiApiKey = localStorage.getItem('study-tracker-ai-key') || '';
     this.applyTheme();
     this.loadModules();
     this.pushHistory();
@@ -1326,6 +1355,14 @@ class StudyTrackerApp {
             <button class="tool-btn" id="zoomOut" title="Zoom Out">🔍-</button>
             <span id="zoomLevel" style="color:#00d4ff;font-size:12px;white-space:nowrap;flex-shrink:0;margin:0 10px;">100%</span>
           </div>
+          <div class="roadmap-sel-bar" id="roadmapSelBar" style="display:none;">
+            <span class="roadmap-sel-info">
+              <span class="roadmap-sel-icon">✓</span>
+              <span id="roadmapSelCount">0 items selected</span>
+            </span>
+            <button class="roadmap-sel-generate" id="generateRoadmapBtn">✨ Generate Roadmap</button>
+            <button class="roadmap-sel-clear" id="clearRoadmapSelBtn">✕ Clear</button>
+          </div>
           <canvas id="workspaceCanvas" class="workspace-canvas"></canvas>
         </div>
       </div>
@@ -1343,6 +1380,37 @@ class StudyTrackerApp {
     const settingsFabBtn = document.getElementById('settingsFabBtn');
     if (settingsFabBtn) {
       settingsFabBtn.addEventListener('click', () => this.openSettings());
+    }
+
+    // Roadmap selection bar
+    const generateRoadmapBtn = document.getElementById('generateRoadmapBtn');
+    if (generateRoadmapBtn) {
+      generateRoadmapBtn.addEventListener('click', () => this.generateRoadmap());
+    }
+    const clearRoadmapSelBtn = document.getElementById('clearRoadmapSelBtn');
+    if (clearRoadmapSelBtn) {
+      clearRoadmapSelBtn.addEventListener('click', () => {
+        this.selectedWorkspaceItems.clear();
+        this.updateMultiSelectBar();
+        this.drawWorkspace();
+      });
+    }
+
+    // API key save
+    const saveApiKeyBtn = document.getElementById('saveApiKeyBtn');
+    if (saveApiKeyBtn) {
+      saveApiKeyBtn.addEventListener('click', () => {
+        const input = document.getElementById('aiApiKeyInput') as HTMLInputElement | null;
+        if (input) {
+          this.aiApiKey = input.value.trim();
+          localStorage.setItem('study-tracker-ai-key', this.aiApiKey);
+          const status = document.getElementById('apiKeyStatus');
+          if (status) {
+            status.textContent = 'API key saved!';
+            setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+          }
+        }
+      });
     }
 
     // Settings page buttons
@@ -2490,6 +2558,19 @@ class StudyTrackerApp {
       }
 
       const itemAtPos = this.getItemAtPosition(x, y, ws);
+
+      // Shift+click: toggle multi-select for roadmap generation
+      if (e.shiftKey && itemAtPos && itemAtPos.type !== 'drawing') {
+        if (this.selectedWorkspaceItems.has(itemAtPos.id)) {
+          this.selectedWorkspaceItems.delete(itemAtPos.id);
+        } else {
+          this.selectedWorkspaceItems.add(itemAtPos.id);
+        }
+        this.updateMultiSelectBar();
+        this.drawWorkspace();
+        return;
+      }
+
       if (itemAtPos) {
         this.selectedItem = itemAtPos;
         this.updateToolOptions();
@@ -2527,6 +2608,10 @@ class StudyTrackerApp {
       } else {
         this.selectedItem = null;
         this.updateToolOptions();
+        if (!e.shiftKey) {
+          this.selectedWorkspaceItems.clear();
+          this.updateMultiSelectBar();
+        }
       }
       this.drawWorkspace();
       return;
@@ -2986,6 +3071,26 @@ class StudyTrackerApp {
       ctx.fillStyle = '#00d4ff';
       const handleSize = 8;
       ctx.fillRect(w - handleSize, h - handleSize, handleSize, handleSize);
+    }
+
+    // Multi-select highlight (orange dashed border + numbered badge)
+    if (this.selectedWorkspaceItems.has(item.id)) {
+      const idx = Array.from(this.selectedWorkspaceItems).indexOf(item.id) + 1;
+      ctx.strokeStyle = '#ff9500';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(-4, -4, w + 8, h + 8);
+      ctx.setLineDash([]);
+      const badgeR = 10;
+      ctx.fillStyle = '#ff9500';
+      ctx.beginPath();
+      ctx.arc(badgeR, badgeR, badgeR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.min(11, badgeR * 1.2)}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(idx), badgeR, badgeR);
     }
 
     switch (item.type) {
@@ -4431,6 +4536,21 @@ class StudyTrackerApp {
           </div>
 
           <div class="settings-section">
+            <div class="settings-section-title">AI Features</div>
+            <div class="settings-card">
+              <div class="settings-card-title">Anthropic API Key</div>
+              <div class="settings-card-desc">Used for AI Roadmap generation. Get your key at console.anthropic.com. Stored locally on your device only.</div>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+                <input type="password" id="aiApiKeyInput" value="${this.escapeHtml(this.aiApiKey)}"
+                  placeholder="sk-ant-..."
+                  style="flex:1;padding:8px 12px;background:var(--input-bg,#1a1a2e);border:1px solid rgba(0,212,255,0.3);color:var(--text-primary,#fff);border-radius:6px;font-size:13px;outline:none;">
+                <button class="settings-btn-action" id="saveApiKeyBtn">Save</button>
+              </div>
+              <div id="apiKeyStatus" style="font-size:12px;color:#22c55e;margin-top:4px;min-height:16px;"></div>
+            </div>
+          </div>
+
+          <div class="settings-section">
             <div class="settings-section-title">App Appearance</div>
 
             <div class="settings-card">
@@ -4464,6 +4584,338 @@ class StudyTrackerApp {
     if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return '📊';
     if (mimeType.startsWith('text/')) return '📃';
     return '📎';
+  }
+
+  // ─── AI Roadmap ──────────────────────────────────────────────────────────────
+
+  private updateMultiSelectBar(): void {
+    const bar = document.getElementById('roadmapSelBar');
+    const countEl = document.getElementById('roadmapSelCount');
+    const generateBtn = document.getElementById('generateRoadmapBtn') as HTMLButtonElement | null;
+    if (!bar || !countEl) return;
+    const count = this.selectedWorkspaceItems.size;
+    if (count >= 2) {
+      countEl.textContent = `${count} items selected`;
+      bar.style.display = 'flex';
+      if (generateBtn) {
+        const hasKey = !!this.aiApiKey;
+        generateBtn.disabled = !hasKey;
+        generateBtn.title = hasKey ? 'Generate AI learning roadmap' : 'Add your Anthropic API key in Settings first';
+        generateBtn.style.opacity = hasKey ? '1' : '0.4';
+        generateBtn.style.cursor = hasKey ? 'pointer' : 'not-allowed';
+      }
+    } else {
+      bar.style.display = 'none';
+    }
+  }
+
+  private async generateRoadmap(): Promise<void> {
+    const ws = this.currentModule?.workspace;
+    if (!ws) return;
+    const selectedItems = ws.items.filter(item => this.selectedWorkspaceItems.has(item.id));
+    if (selectedItems.length < 2) return;
+    if (!this.aiApiKey) {
+      alert('Please add your Anthropic API key in Settings first.');
+      return;
+    }
+    this.showRoadmapLoading();
+    try {
+      const result = await this.callAnthropicAPI(selectedItems);
+      this.roadmapNodes = result.nodes;
+      this.roadmapEdges = result.edges;
+      this.roadmapTitle = result.title;
+      this.roadmapExplanation = result.explanation;
+      this.computeRoadmapLayout();
+      this.showRoadmapOverlay();
+    } catch (err) {
+      this.hideRoadmapOverlay();
+      alert(`Failed to generate roadmap: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  }
+
+  private async callAnthropicAPI(items: WorkspaceItem[]): Promise<{
+    title: string;
+    explanation: string;
+    nodes: RoadmapNode[];
+    edges: RoadmapEdge[];
+  }> {
+    const itemDescriptions = items.map((item) => {
+      const label = item.name || item.content?.slice(0, 80) || `${item.type} item`;
+      return `- ID: "${item.id}", Type: ${item.type}, Label: "${label}"`;
+    }).join('\n');
+
+    const prompt = `You are an expert learning path designer. Analyze these study materials and create a learning roadmap ordered from beginner to advanced.
+
+Study materials:
+${itemDescriptions}
+
+Respond with ONLY valid JSON — no markdown fences, no extra text:
+{
+  "title": "Roadmap title",
+  "explanation": "1-2 sentence description of the learning path",
+  "nodes": [
+    {
+      "id": "n1",
+      "itemId": "<exact ID from above>",
+      "label": "<item label>",
+      "level": 0,
+      "reason": "<why this level, 1 sentence>"
+    }
+  ],
+  "edges": [
+    {"from": "n1", "to": "n2"}
+  ]
+}
+
+Rules:
+- level 0 = beginner/foundational, higher = more advanced
+- Edges point FROM prerequisite TO dependent topic
+- Every item must appear exactly once as a node
+- itemId must exactly match an ID from the list above
+- Create a tree or DAG (no cycles)`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.aiApiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-7',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`API error ${response.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+    const text: string = data.content?.[0]?.text || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON in AI response');
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    const nodes: RoadmapNode[] = (parsed.nodes || []).map((n: any) => ({
+      id: n.id,
+      itemId: n.itemId,
+      label: n.label || 'Unnamed',
+      level: typeof n.level === 'number' ? n.level : 0,
+      reason: n.reason || '',
+      x: 0,
+      y: 0,
+    }));
+
+    return {
+      title: parsed.title || 'Learning Roadmap',
+      explanation: parsed.explanation || '',
+      nodes,
+      edges: (parsed.edges || []) as RoadmapEdge[],
+    };
+  }
+
+  private computeRoadmapLayout(): void {
+    const nodesByLevel = new Map<number, RoadmapNode[]>();
+    for (const node of this.roadmapNodes) {
+      if (!nodesByLevel.has(node.level)) nodesByLevel.set(node.level, []);
+      nodesByLevel.get(node.level)!.push(node);
+    }
+    const nodeW = 210;
+    const nodeH = 120;
+    const hGap = 60;
+    const vGap = 80;
+    const sortedLevels = Array.from(nodesByLevel.keys()).sort((a, b) => a - b);
+    sortedLevels.forEach((level, levelIdx) => {
+      const nodesAtLevel = nodesByLevel.get(level)!;
+      const totalW = nodesAtLevel.length * nodeW + (nodesAtLevel.length - 1) * hGap;
+      const startX = Math.max(40, (900 - totalW) / 2);
+      nodesAtLevel.forEach((node, i) => {
+        node.x = startX + i * (nodeW + hGap);
+        node.y = 50 + levelIdx * (nodeH + vGap);
+      });
+    });
+  }
+
+  private showRoadmapLoading(): void {
+    this.hideRoadmapOverlay();
+    const overlay = document.createElement('div');
+    overlay.id = 'roadmapOverlay';
+    overlay.className = 'roadmap-overlay';
+    overlay.innerHTML = `
+      <div class="roadmap-panel">
+        <div class="roadmap-loading">
+          <div class="roadmap-spinner"></div>
+          <p>Analyzing your study materials…</p>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+
+  private showRoadmapOverlay(): void {
+    this.hideRoadmapOverlay();
+
+    const maxX = this.roadmapNodes.length ? Math.max(...this.roadmapNodes.map(n => n.x)) + 270 : 900;
+    const maxY = this.roadmapNodes.length ? Math.max(...this.roadmapNodes.map(n => n.y)) + 170 : 600;
+    const canvasW = Math.max(maxX, 900);
+    const canvasH = Math.max(maxY, 500);
+
+    const levelColors: Record<number, { bg: string; border: string; badge: string }> = {
+      0: { bg: '#052e16', border: '#22c55e', badge: '#22c55e' },
+      1: { bg: '#172554', border: '#3b82f6', badge: '#3b82f6' },
+      2: { bg: '#2e1065', border: '#a855f7', badge: '#a855f7' },
+      3: { bg: '#431407', border: '#f97316', badge: '#f97316' },
+    };
+    const defaultColor = { bg: '#1a1a2e', border: '#00d4ff', badge: '#00d4ff' };
+    const levelLabels: Record<number, string> = {
+      0: 'Beginner', 1: 'Intermediate', 2: 'Advanced', 3: 'Expert',
+    };
+
+    const minLevel = this.roadmapNodes.length ? Math.min(...this.roadmapNodes.map(n => n.level)) : 0;
+    const startNodeId = this.roadmapNodes.find(n => n.level === minLevel)?.id;
+
+    const nodesHTML = this.roadmapNodes.map(node => {
+      const colors = levelColors[node.level] ?? defaultColor;
+      const levelLabel = levelLabels[node.level] ?? `Level ${node.level}`;
+      const isStart = node.id === startNodeId;
+      return `
+        <div class="roadmap-node" id="rnode-${node.id}"
+             style="left:${node.x}px;top:${node.y}px;border-color:${colors.border};background:${colors.bg};"
+             data-nodeid="${node.id}">
+          ${isStart ? `<div class="roadmap-node-start" style="background:${colors.badge};">START HERE</div>` : ''}
+          <div class="roadmap-node-level" style="color:${colors.badge};border-color:${colors.badge};">${this.escapeHtml(levelLabel)}</div>
+          <div class="roadmap-node-label">${this.escapeHtml(node.label)}</div>
+          <div class="roadmap-node-reason">${this.escapeHtml(node.reason)}</div>
+        </div>`;
+    }).join('');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'roadmapOverlay';
+    overlay.className = 'roadmap-overlay';
+    overlay.innerHTML = `
+      <div class="roadmap-panel">
+        <div class="roadmap-header">
+          <div class="roadmap-title-area">
+            <h2 class="roadmap-title">🗺 ${this.escapeHtml(this.roadmapTitle)}</h2>
+            <p class="roadmap-explanation">${this.escapeHtml(this.roadmapExplanation)}</p>
+          </div>
+          <div class="roadmap-header-actions">
+            <button class="roadmap-apply-btn" id="applyRoadmapBtn">Apply to Workspace</button>
+            <button class="roadmap-close-btn" id="closeRoadmapBtn">✕ Close</button>
+          </div>
+        </div>
+        <div class="roadmap-canvas-container">
+          <div class="roadmap-canvas" id="roadmapCanvas" style="width:${canvasW}px;height:${canvasH}px;position:relative;">
+            <svg class="roadmap-svg" id="roadmapSvg" width="${canvasW}" height="${canvasH}"
+                 style="position:absolute;top:0;left:0;pointer-events:none;">
+              <defs>
+                <marker id="rm-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="rgba(0,212,255,0.8)" />
+                </marker>
+              </defs>
+            </svg>
+            ${nodesHTML}
+          </div>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+    this.updateRoadmapArrows();
+
+    document.getElementById('closeRoadmapBtn')?.addEventListener('click', () => this.hideRoadmapOverlay());
+    document.getElementById('applyRoadmapBtn')?.addEventListener('click', () => this.applyRoadmapToWorkspace());
+
+    this.roadmapNodes.forEach(node => {
+      const nodeEl = document.getElementById(`rnode-${node.id}`);
+      if (!nodeEl) return;
+      nodeEl.addEventListener('pointerdown', (e: PointerEvent) => {
+        e.preventDefault();
+        nodeEl.setPointerCapture(e.pointerId);
+        this.roadmapDragNodeId = node.id;
+        this.roadmapDragStartX = e.clientX;
+        this.roadmapDragStartY = e.clientY;
+        this.roadmapNodeStartX = node.x;
+        this.roadmapNodeStartY = node.y;
+        nodeEl.classList.add('dragging');
+      });
+      nodeEl.addEventListener('pointermove', (e: PointerEvent) => {
+        if (this.roadmapDragNodeId !== node.id) return;
+        node.x = Math.max(0, this.roadmapNodeStartX + (e.clientX - this.roadmapDragStartX));
+        node.y = Math.max(0, this.roadmapNodeStartY + (e.clientY - this.roadmapDragStartY));
+        nodeEl.style.left = `${node.x}px`;
+        nodeEl.style.top = `${node.y}px`;
+        this.updateRoadmapArrows();
+      });
+      nodeEl.addEventListener('pointerup', () => {
+        if (this.roadmapDragNodeId === node.id) {
+          this.roadmapDragNodeId = null;
+          nodeEl.classList.remove('dragging');
+        }
+      });
+    });
+  }
+
+  private updateRoadmapArrows(): void {
+    const svg = document.getElementById('roadmapSvg');
+    if (!svg) return;
+    svg.querySelectorAll('path').forEach(el => el.remove());
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const nodeW = 210;
+    const nodeH = 120;
+    this.roadmapEdges.forEach(edge => {
+      const fromNode = this.roadmapNodes.find(n => n.id === edge.from);
+      const toNode = this.roadmapNodes.find(n => n.id === edge.to);
+      if (!fromNode || !toNode) return;
+      const x1 = fromNode.x + nodeW / 2;
+      const y1 = fromNode.y + nodeH;
+      const x2 = toNode.x + nodeW / 2;
+      const y2 = toNode.y;
+      const cy = (y2 - y1) * 0.45;
+      const path = document.createElementNS(svgNS, 'path');
+      path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${y1 + cy}, ${x2} ${y2 - cy}, ${x2} ${y2}`);
+      path.setAttribute('stroke', 'rgba(0,212,255,0.75)');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('marker-end', 'url(#rm-arrow)');
+      svg.appendChild(path);
+    });
+  }
+
+  private hideRoadmapOverlay(): void {
+    document.getElementById('roadmapOverlay')?.remove();
+  }
+
+  private applyRoadmapToWorkspace(): void {
+    const ws = this.currentModule?.workspace;
+    if (!ws) return;
+    if (!ws.connections) ws.connections = [];
+    let added = 0;
+    this.roadmapEdges.forEach(edge => {
+      const fromNode = this.roadmapNodes.find(n => n.id === edge.from);
+      const toNode = this.roadmapNodes.find(n => n.id === edge.to);
+      if (!fromNode || !toNode) return;
+      const exists = ws.connections!.some(
+        c => (c.fromId === fromNode.itemId && c.toId === toNode.itemId) ||
+             (c.fromId === toNode.itemId && c.toId === fromNode.itemId)
+      );
+      if (!exists) {
+        ws.connections!.push({
+          id: Math.random().toString(36).slice(2),
+          fromId: fromNode.itemId,
+          toId: toNode.itemId,
+        });
+        added++;
+      }
+    });
+    if (added > 0) {
+      this.saveModules();
+      this.pushHistory();
+      this.drawWorkspace();
+    }
+    this.hideRoadmapOverlay();
   }
 }
 
