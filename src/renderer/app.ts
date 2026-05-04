@@ -4538,11 +4538,11 @@ class StudyTrackerApp {
           <div class="settings-section">
             <div class="settings-section-title">AI Features</div>
             <div class="settings-card">
-              <div class="settings-card-title">Anthropic API Key</div>
-              <div class="settings-card-desc">Used for AI Roadmap generation. Get your key at console.anthropic.com. Stored locally on your device only.</div>
+              <div class="settings-card-title">Google Gemini API Key</div>
+              <div class="settings-card-desc">Used for AI Roadmap generation. Get your free key at aistudio.google.com. Stored locally on your device only.</div>
               <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
                 <input type="password" id="aiApiKeyInput" value="${this.escapeHtml(this.aiApiKey)}"
-                  placeholder="sk-ant-..."
+                  placeholder="AIza..."
                   style="flex:1;padding:8px 12px;background:var(--input-bg,#1a1a2e);border:1px solid rgba(0,212,255,0.3);color:var(--text-primary,#fff);border-radius:6px;font-size:13px;outline:none;">
                 <button class="settings-btn-action" id="saveApiKeyBtn">Save</button>
               </div>
@@ -4600,7 +4600,7 @@ class StudyTrackerApp {
       if (generateBtn) {
         const hasKey = !!this.aiApiKey;
         generateBtn.disabled = !hasKey;
-        generateBtn.title = hasKey ? 'Generate AI learning roadmap' : 'Add your Anthropic API key in Settings first';
+        generateBtn.title = hasKey ? 'Generate AI learning roadmap' : 'Add your Google Gemini API key in Settings first';
         generateBtn.style.opacity = hasKey ? '1' : '0.4';
         generateBtn.style.cursor = hasKey ? 'pointer' : 'not-allowed';
       }
@@ -4615,7 +4615,7 @@ class StudyTrackerApp {
     const selectedItems = ws.items.filter(item => this.selectedWorkspaceItems.has(item.id));
     if (selectedItems.length < 2) return;
     if (!this.aiApiKey) {
-      alert('Please add your Anthropic API key in Settings first.');
+      alert('Please add your Google Gemini API key in Settings first.');
       return;
     }
     this.showRoadmapLoading();
@@ -4674,20 +4674,17 @@ Rules:
 - itemId must exactly match an ID from the list above
 - Create a tree or DAG (no cycles)`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': this.aiApiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-7',
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.aiApiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 2048 },
+        }),
+      }
+    );
 
     if (!response.ok) {
       const errText = await response.text();
@@ -4695,7 +4692,7 @@ Rules:
     }
 
     const data = await response.json();
-    const text: string = data.content?.[0]?.text || '';
+    const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON in AI response');
     const parsed = JSON.parse(jsonMatch[0]);
