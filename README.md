@@ -1,6 +1,6 @@
 # Study Tracker
 
-A beautiful and efficient study tracking desktop application built with Electron (frontend) and C++ (backend).
+A beautiful and efficient study tracking desktop application built with Electron (frontend) and TypeScript (backend).
 
 ## Project Structure
 
