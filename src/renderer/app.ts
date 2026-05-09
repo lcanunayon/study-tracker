@@ -1,4 +1,4 @@
-import { auth, fbSignIn, fbSignUp, fbSignOut, onAuthStateChanged, saveUserModules, loadUserModules, saveUserBackup, loadUserBackup } from './firebase';
+import { auth, fbSignIn, fbSignUp, fbSignOut, onAuthStateChanged, saveUserModules, loadUserModules, subscribeToUserModules, saveUserBackup, loadUserBackup } from './firebase';
 import type { User } from './firebase';
 
 interface ArchiveGroup {
@@ -110,6 +110,10 @@ class StudyTrackerApp {
   private authReady = false;
   private authMode: 'login' | 'signup' = 'login';
   private fbSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  private fbUnsubscribe: (() => void) | null = null;
+  private localChangeAt = 0;        // last time the user changed data locally
+  private lastAppliedCloudAt = 0;   // updatedAt of the last cloud snapshot we applied
+  private lastPushAt = 0;           // updatedAt we wrote on our last cloud push
 
   // Workspace properties
   private workspaceCanvas: HTMLCanvasElement | null = null;
@@ -189,6 +193,12 @@ class StudyTrackerApp {
 
     // Firebase auth: re-render on login/logout, load cloud data on sign-in
     onAuthStateChanged(auth, async (user) => {
+      // Tear down any previous real-time listener before switching users
+      if (this.fbUnsubscribe) {
+        this.fbUnsubscribe();
+        this.fbUnsubscribe = null;
+      }
+
       this.currentUser = user;
       if (user) {
         const storedUid = localStorage.getItem(this.storageUidKey);
@@ -197,46 +207,63 @@ class StudyTrackerApp {
           const cloud = await loadUserModules(user.uid);
           const cloudModules = cloud?.modules as Module[] | null;
           const cloudArchiveGroups = (cloud?.archiveGroups as ArchiveGroup[]) ?? [];
-          if (!isSameUser) {
-            // Switching accounts — cloud data is authoritative
-            if (cloudModules && cloudModules.length > 0) {
-              this.modules = cloudModules;
-              this.archiveGroups = cloudArchiveGroups;
-            } else {
-              this.modules = [];
-              this.archiveGroups = [];
-              localStorage.removeItem(this.storageKey);
-              localStorage.removeItem(this.archiveStorageKey);
-            }
+          const cloudUpdatedAt = cloud?.updatedAt ?? 0;
+
+          const applyCloud = () => {
+            this.modules = cloudModules && cloudModules.length > 0 ? cloudModules : [];
+            this.archiveGroups = cloudModules && cloudModules.length > 0 ? cloudArchiveGroups : [];
             localStorage.setItem(this.storageUidKey, user.uid);
             localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
             localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
+            this.localChangeAt = 0;
+            localStorage.setItem('study-tracker-local-change-at', '0');
+            this.lastAppliedCloudAt = cloudUpdatedAt;
             this.undoStack = [];
             this.pushHistory();
+          };
+
+          if (!isSameUser) {
+            // Different account — cloud is always authoritative, wipe local state
+            applyCloud();
           } else if (cloudModules && cloudModules.length > 0) {
-            // Same user — only use cloud data if local is empty or cloud has more data
-            const localIsEmpty = this.modules.length === 0;
-            const cloudHasMore = cloudModules.length > this.modules.length;
-            // Pick whichever has the most recently modified module
-            const localLatest = this.modules.reduce((max, m) => Math.max(max, m.createdAt), 0);
-            const cloudLatest = cloudModules.reduce((max, m) => Math.max(max, m.createdAt), 0);
-            if (localIsEmpty || cloudHasMore || cloudLatest > localLatest) {
-              this.modules = cloudModules;
-              this.archiveGroups = cloudArchiveGroups;
-              localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
-              localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
-              this.undoStack = [];
-              this.pushHistory();
+            // Same user — cloud wins if it was updated after our last local change
+            if (cloudUpdatedAt > this.localChangeAt) {
+              applyCloud();
             } else {
-              // Local is at least as fresh — push local to cloud to keep in sync
+              // Local is at least as fresh — push it up to keep cloud in sync
+              this.lastAppliedCloudAt = cloudUpdatedAt;
               if (this.fbSyncTimer) clearTimeout(this.fbSyncTimer);
               this.fbSyncTimer = setTimeout(() => this.syncToFirestore(), 2000);
             }
+          } else if (isSameUser && this.modules.length > 0) {
+            // Same user, no cloud data yet — seed the cloud from local
+            if (this.fbSyncTimer) clearTimeout(this.fbSyncTimer);
+            this.fbSyncTimer = setTimeout(() => this.syncToFirestore(), 2000);
           }
-          // Same user + no cloud data: keep localStorage as-is
+
+          // Real-time listener: apply cloud changes from other computers while running
+          this.fbUnsubscribe = subscribeToUserModules(user.uid, (cloudData) => {
+            if (!cloudData) return;
+            // Ignore snapshots triggered by our own push
+            if (cloudData.updatedAt === this.lastPushAt) return;
+            // Apply only if cloud is newer than both what we last applied and last local change
+            if (cloudData.updatedAt > this.lastAppliedCloudAt && cloudData.updatedAt > this.localChangeAt) {
+              this.modules = cloudData.modules as Module[];
+              this.archiveGroups = (cloudData.archiveGroups as ArchiveGroup[]) ?? [];
+              localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
+              localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
+              this.localChangeAt = 0;
+              localStorage.setItem('study-tracker-local-change-at', '0');
+              this.lastAppliedCloudAt = cloudData.updatedAt;
+              this.undoStack = [];
+              this.pushHistory();
+              this.render();
+            }
+          });
+
         } catch (e) {
           console.error('Firestore load failed:', e);
-          if (!isSameUser) { this.modules = []; this.archiveGroups = []; } // don't leak another user's data
+          if (!isSameUser) { this.modules = []; this.archiveGroups = []; }
         }
       } else {
         // Logged out — preserve localStorage so same user can restore on next login
@@ -636,6 +663,7 @@ class StudyTrackerApp {
   }
 
   private loadModules(): void {
+    this.localChangeAt = Number(localStorage.getItem('study-tracker-local-change-at') || '0');
     const stored = localStorage.getItem(this.storageKey);
     if (stored) {
       this.modules = JSON.parse(stored);
@@ -697,6 +725,8 @@ class StudyTrackerApp {
     localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
     if (this.currentUser) {
       localStorage.setItem(this.storageUidKey, this.currentUser.uid);
+      this.localChangeAt = Date.now();
+      localStorage.setItem('study-tracker-local-change-at', String(this.localChangeAt));
       if (this.fbSyncTimer) clearTimeout(this.fbSyncTimer);
       this.fbSyncTimer = setTimeout(() => this.syncToFirestore(), 2000);
     }
@@ -705,7 +735,7 @@ class StudyTrackerApp {
   private async syncToFirestore(): Promise<void> {
     if (!this.currentUser) return;
     try {
-      await saveUserModules(this.currentUser.uid, this.modules, this.archiveGroups);
+      this.lastPushAt = await saveUserModules(this.currentUser.uid, this.modules, this.archiveGroups);
     } catch (err) {
       console.error('Firestore sync failed:', err);
     }

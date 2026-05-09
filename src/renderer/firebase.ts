@@ -6,7 +6,7 @@ import {
   signOut as _fbSignOut,
   onAuthStateChanged as _onAuthStateChanged,
 } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCbVCGBdZfK2iXW6In0cwbXXKyXY220vDo',
@@ -107,16 +107,18 @@ async function prepareForFirestore(modules: object[]): Promise<object[]> {
   return out;
 }
 
-export async function saveUserModules(userId: string, modules: object[], archiveGroups: object[] = []): Promise<void> {
+export async function saveUserModules(userId: string, modules: object[], archiveGroups: object[] = []): Promise<number> {
   const prepared = await prepareForFirestore(modules);
+  const updatedAt = Date.now();
   await setDoc(doc(db, 'users', userId), {
     modulesJson: JSON.stringify(prepared),
     archiveGroupsJson: JSON.stringify(archiveGroups),
-    updatedAt: Date.now(),
+    updatedAt,
   });
+  return updatedAt;
 }
 
-export async function loadUserModules(userId: string): Promise<{ modules: object[]; archiveGroups: object[] } | null> {
+export async function loadUserModules(userId: string): Promise<{ modules: object[]; archiveGroups: object[]; updatedAt: number } | null> {
   const snap = await getDoc(doc(db, 'users', userId));
   if (!snap.exists()) return null;
   const data = snap.data();
@@ -124,7 +126,25 @@ export async function loadUserModules(userId: string): Promise<{ modules: object
   return {
     modules: JSON.parse(data['modulesJson']) as object[],
     archiveGroups: data['archiveGroupsJson'] ? (JSON.parse(data['archiveGroupsJson']) as object[]) : [],
+    updatedAt: (data['updatedAt'] as number) ?? 0,
   };
+}
+
+export function subscribeToUserModules(
+  userId: string,
+  callback: (data: { modules: object[]; archiveGroups: object[]; updatedAt: number } | null) => void
+): () => void {
+  const ref = doc(db, 'users', userId);
+  return onSnapshot(ref, (snap) => {
+    if (!snap.exists()) { callback(null); return; }
+    const data = snap.data();
+    if (!data['modulesJson']) { callback(null); return; }
+    callback({
+      modules: JSON.parse(data['modulesJson']) as object[],
+      archiveGroups: data['archiveGroupsJson'] ? (JSON.parse(data['archiveGroupsJson']) as object[]) : [],
+      updatedAt: (data['updatedAt'] as number) ?? 0,
+    });
+  });
 }
 
 export async function saveUserBackup(userId: string, modules: object[], archiveGroups: object[] = []): Promise<void> {
