@@ -689,6 +689,103 @@ body {
   to   { box-shadow: 0 0 14px rgba(255, 60, 60, 0.8); }
 }
 
+/* Pomodoro settings row */
+.pomodoro-settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.pomodoro-setting-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pomodoro-setting-label {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+}
+
+.pomodoro-setting-input {
+  width: 42px;
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  color: #00d4ff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 4px;
+  border-radius: 4px;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.pomodoro-setting-input::-webkit-outer-spin-button,
+.pomodoro-setting-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.pomodoro-setting-input:hover:not(:disabled) {
+  border-color: rgba(0, 212, 255, 0.6);
+  background: rgba(0, 212, 255, 0.14);
+}
+
+.pomodoro-setting-input:focus:not(:disabled) {
+  border-color: #00d4ff;
+  background: rgba(0, 212, 255, 0.15);
+}
+
+.pomodoro-setting-input:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.pomodoro-setting-unit {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 11px;
+}
+
+.pomodoro-setting-sep {
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 13px;
+}
+
+body.light-mode .pomodoro-setting-label {
+  color: rgba(0, 0, 0, 0.38);
+}
+
+body.light-mode .pomodoro-setting-input {
+  background: rgba(0, 130, 180, 0.06);
+  border-color: rgba(0, 130, 180, 0.28);
+  color: #0077aa;
+}
+
+body.light-mode .pomodoro-setting-input:hover:not(:disabled) {
+  border-color: rgba(0, 130, 180, 0.55);
+  background: rgba(0, 130, 180, 0.1);
+}
+
+body.light-mode .pomodoro-setting-input:focus:not(:disabled) {
+  border-color: #0077aa;
+  background: rgba(0, 130, 180, 0.12);
+}
+
+body.light-mode .pomodoro-setting-input:disabled {
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.3);
+}
+
+body.light-mode .pomodoro-setting-unit,
+body.light-mode .pomodoro-setting-sep {
+  color: rgba(0, 0, 0, 0.22);
+}
+
 /* Auth screen */
 .auth-container {
   display: flex;

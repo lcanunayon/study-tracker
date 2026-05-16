@@ -173,7 +173,9 @@ class StudyTrackerApp {
   private swStartTs = 0; // Date.now() when last started
   // Pomodoro
   private pomodoroPhase: 'work' | 'break' = 'work';
-  private pomodoroSecondsLeft = 25 * 60;
+  private pomodoroWorkMinutes = 25;
+  private pomodoroBreakMinutes = 5;
+  private pomodoroSecondsLeft = this.pomodoroWorkMinutes * 60;
   private pomodoroPhaseStartTs = 0; // Date.now() when the current phase began
   private pomodoroLastWorkSec = 0;  // work-seconds already credited this phase (for delta)
   // Session — non-persisted, resets when opening a module or clicking Reset
@@ -182,6 +184,11 @@ class StudyTrackerApp {
   constructor() {
     this.theme = (localStorage.getItem('study-tracker-theme') as 'dark' | 'light') || 'dark';
     this.aiApiKey = localStorage.getItem('study-tracker-ai-key') || '';
+    const savedWork = parseInt(localStorage.getItem('study-tracker-pomodoro-work') || '25', 10);
+    const savedBreak = parseInt(localStorage.getItem('study-tracker-pomodoro-break') || '5', 10);
+    if (!isNaN(savedWork) && savedWork >= 1 && savedWork <= 120) this.pomodoroWorkMinutes = savedWork;
+    if (!isNaN(savedBreak) && savedBreak >= 1 && savedBreak <= 60) this.pomodoroBreakMinutes = savedBreak;
+    this.pomodoroSecondsLeft = this.pomodoroWorkMinutes * 60;
     this.applyTheme();
     this.loadModules();
     this.pushHistory();
@@ -1313,7 +1320,21 @@ class StudyTrackerApp {
                 <button class="timer-tab${this.timerMode === 'pomodoro' ? ' active' : ''}" id="timerTabPomodoro">Pomodoro</button>
               </div>
               <div class="timer-body">
-                ${this.timerMode === 'pomodoro' ? `<div class="timer-phase-label ${this.pomodoroPhase === 'work' ? 'phase-work' : 'phase-break'}" id="timerPhaseLabel">${this.pomodoroPhase === 'work' ? '🍅 Work' : '☕ Break'}</div>` : ''}
+                ${this.timerMode === 'pomodoro' ? `
+                <div class="timer-phase-label ${this.pomodoroPhase === 'work' ? 'phase-work' : 'phase-break'}" id="timerPhaseLabel">${this.pomodoroPhase === 'work' ? '🍅 Work' : '☕ Break'}</div>
+                <div class="pomodoro-settings">
+                  <div class="pomodoro-setting-item">
+                    <span class="pomodoro-setting-label">Work</span>
+                    <input type="number" class="pomodoro-setting-input" id="pomodoroWorkInput" value="${this.pomodoroWorkMinutes}" min="1" max="120"${this.timerRunning ? ' disabled' : ''}>
+                    <span class="pomodoro-setting-unit">min</span>
+                  </div>
+                  <span class="pomodoro-setting-sep">·</span>
+                  <div class="pomodoro-setting-item">
+                    <span class="pomodoro-setting-label">Break</span>
+                    <input type="number" class="pomodoro-setting-input" id="pomodoroBreakInput" value="${this.pomodoroBreakMinutes}" min="1" max="60"${this.timerRunning ? ' disabled' : ''}>
+                    <span class="pomodoro-setting-unit">min</span>
+                  </div>
+                </div>` : ''}
                 <div class="timer-display" id="timerDisplay">${this.timerMode === 'stopwatch' ? this.formatStopwatch(this.stopwatchSeconds) : this.formatPomodoro(this.pomodoroSecondsLeft)}</div>
                 <div class="timer-session-row">
                   <span class="timer-session-label">Session</span>
@@ -1667,6 +1688,35 @@ class StudyTrackerApp {
       });
       const timerTotal = document.getElementById('timerTotalDisplay');
       if (timerTotal) timerTotal.addEventListener('dblclick', () => this.editTotalTime());
+      const pomodoroWorkInput = document.getElementById('pomodoroWorkInput') as HTMLInputElement | null;
+      const pomodoroBreakInput = document.getElementById('pomodoroBreakInput') as HTMLInputElement | null;
+      if (pomodoroWorkInput) pomodoroWorkInput.addEventListener('change', () => {
+        const val = parseInt(pomodoroWorkInput.value, 10);
+        if (!isNaN(val) && val >= 1 && val <= 120) {
+          this.pomodoroWorkMinutes = val;
+          if (!this.timerRunning && this.pomodoroPhase === 'work') {
+            this.pomodoroSecondsLeft = this.pomodoroWorkMinutes * 60;
+            this.pomodoroLastWorkSec = 0;
+            this.updateTimerDisplay();
+          }
+          localStorage.setItem('study-tracker-pomodoro-work', String(this.pomodoroWorkMinutes));
+        } else {
+          pomodoroWorkInput.value = String(this.pomodoroWorkMinutes);
+        }
+      });
+      if (pomodoroBreakInput) pomodoroBreakInput.addEventListener('change', () => {
+        const val = parseInt(pomodoroBreakInput.value, 10);
+        if (!isNaN(val) && val >= 1 && val <= 60) {
+          this.pomodoroBreakMinutes = val;
+          if (!this.timerRunning && this.pomodoroPhase === 'break') {
+            this.pomodoroSecondsLeft = this.pomodoroBreakMinutes * 60;
+            this.updateTimerDisplay();
+          }
+          localStorage.setItem('study-tracker-pomodoro-break', String(this.pomodoroBreakMinutes));
+        } else {
+          pomodoroBreakInput.value = String(this.pomodoroBreakMinutes);
+        }
+      });
     }
 
     // Auth form
@@ -4177,12 +4227,13 @@ class StudyTrackerApp {
     this.swStartTs = now;
     if (this.timerMode === 'pomodoro') {
       // Reconstruct phase start so that the current secondsLeft stays accurate
-      const phaseDur = this.pomodoroPhase === 'work' ? 25 * 60 : 5 * 60;
+      const phaseDur = this.pomodoroPhase === 'work' ? this.pomodoroWorkMinutes * 60 : this.pomodoroBreakMinutes * 60;
       this.pomodoroPhaseStartTs = now - (phaseDur - this.pomodoroSecondsLeft) * 1000;
       // Seconds already credited to studyTime in this phase before this resume
       this.pomodoroLastWorkSec = this.pomodoroPhase === 'work' ? phaseDur - this.pomodoroSecondsLeft : 0;
     }
     this.updateTimerStartPauseBtn();
+    this.updatePomodoroInputsState();
     // Poll at 500 ms so the display catches up quickly after un-minimising
     this.timerInterval = setInterval(() => this.timerTick(), 500);
   }
@@ -4198,6 +4249,7 @@ class StudyTrackerApp {
     // Persist base so the next Start resumes from here
     this.swBaseSeconds = this.stopwatchSeconds;
     this.updateTimerStartPauseBtn();
+    this.updatePomodoroInputsState();
     if (this.currentModule) this.saveModules();
   }
 
@@ -4207,7 +4259,7 @@ class StudyTrackerApp {
     this.stopwatchSeconds = 0;
     this.swBaseSeconds = 0;
     this.pomodoroPhase = 'work';
-    this.pomodoroSecondsLeft = 25 * 60;
+    this.pomodoroSecondsLeft = this.pomodoroWorkMinutes * 60;
     this.pomodoroLastWorkSec = 0;
     this.sessionSeconds = 0;
     this.updateTimerDisplay();
@@ -4242,7 +4294,7 @@ class StudyTrackerApp {
     } else {
       // Pomodoro — elapsed time since current phase started
       let phaseElapsed = Math.floor((now - this.pomodoroPhaseStartTs) / 1000);
-      let phaseDur = this.pomodoroPhase === 'work' ? 25 * 60 : 5 * 60;
+      let phaseDur = this.pomodoroPhase === 'work' ? this.pomodoroWorkMinutes * 60 : this.pomodoroBreakMinutes * 60;
 
       // Handle one or more phase transitions that happened while minimised
       while (phaseElapsed >= phaseDur) {
@@ -4257,7 +4309,7 @@ class StudyTrackerApp {
         phaseElapsed -= phaseDur;
         this.pomodoroPhase = this.pomodoroPhase === 'work' ? 'break' : 'work';
         this.pomodoroLastWorkSec = 0;
-        phaseDur = this.pomodoroPhase === 'work' ? 25 * 60 : 5 * 60;
+        phaseDur = this.pomodoroPhase === 'work' ? this.pomodoroWorkMinutes * 60 : this.pomodoroBreakMinutes * 60;
         // KEY: advance the phase-start timestamp so the next flush sees correct elapsed
         this.pomodoroPhaseStartTs = now - phaseElapsed * 1000;
         this.playBeep();
@@ -4363,6 +4415,13 @@ class StudyTrackerApp {
     if (btn) btn.textContent = this.timerRunning ? '⏸ Pause' : '▶ Start';
   }
 
+  private updatePomodoroInputsState(): void {
+    const workInput = document.getElementById('pomodoroWorkInput') as HTMLInputElement | null;
+    const breakInput = document.getElementById('pomodoroBreakInput') as HTMLInputElement | null;
+    if (workInput) workInput.disabled = this.timerRunning;
+    if (breakInput) breakInput.disabled = this.timerRunning;
+  }
+
   private updatePomodoroPhaseLabel(): void {
     const label = document.getElementById('timerPhaseLabel');
     if (label) {
@@ -4377,7 +4436,7 @@ class StudyTrackerApp {
     this.timerMode = mode;
     this.stopwatchSeconds = 0;
     this.pomodoroPhase = 'work';
-    this.pomodoroSecondsLeft = 25 * 60;
+    this.pomodoroSecondsLeft = this.pomodoroWorkMinutes * 60;
     this.render();
   }
 
