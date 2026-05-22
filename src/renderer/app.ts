@@ -217,13 +217,16 @@ class StudyTrackerApp {
           const cloudUpdatedAt = cloud?.updatedAt ?? 0;
 
           const applyCloud = () => {
-            this.modules = cloudModules && cloudModules.length > 0 ? cloudModules : [];
+            this.modules = cloudModules && cloudModules.length > 0
+              ? this.mergeCloudModules(cloudModules)
+              : [];
             this.archiveGroups = cloudModules && cloudModules.length > 0 ? cloudArchiveGroups : [];
             localStorage.setItem(this.storageUidKey, user.uid);
             localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
             localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
-            this.localChangeAt = 0;
-            localStorage.setItem('study-tracker-local-change-at', '0');
+            // Align with cloudUpdatedAt so this startup's applyCloud doesn't re-trigger next time
+            this.localChangeAt = cloudUpdatedAt;
+            localStorage.setItem('study-tracker-local-change-at', String(cloudUpdatedAt));
             this.lastAppliedCloudAt = cloudUpdatedAt;
             this.undoStack = [];
             this.pushHistory();
@@ -255,12 +258,12 @@ class StudyTrackerApp {
             if (cloudData.updatedAt === this.lastPushAt) return;
             // Apply only if cloud is newer than both what we last applied and last local change
             if (cloudData.updatedAt > this.lastAppliedCloudAt && cloudData.updatedAt > this.localChangeAt) {
-              this.modules = cloudData.modules as Module[];
+              this.modules = this.mergeCloudModules(cloudData.modules as Module[]);
               this.archiveGroups = (cloudData.archiveGroups as ArchiveGroup[]) ?? [];
               localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
               localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
-              this.localChangeAt = 0;
-              localStorage.setItem('study-tracker-local-change-at', '0');
+              this.localChangeAt = cloudData.updatedAt;
+              localStorage.setItem('study-tracker-local-change-at', String(cloudData.updatedAt));
               this.lastAppliedCloudAt = cloudData.updatedAt;
               this.undoStack = [];
               this.pushHistory();
@@ -743,9 +746,35 @@ class StudyTrackerApp {
     if (!this.currentUser) return;
     try {
       this.lastPushAt = await saveUserModules(this.currentUser.uid, this.modules, this.archiveGroups);
+      // Align localChangeAt with the cloud timestamp so the next startup does not see cloud
+      // as "newer" and unnecessarily call applyCloud() (which would overwrite local media
+      // with __local_only__ placeholders that Firestore uses for large videos/PDFs).
+      this.localChangeAt = this.lastPushAt;
+      localStorage.setItem('study-tracker-local-change-at', String(this.localChangeAt));
     } catch (err) {
       console.error('Firestore sync failed:', err);
     }
+  }
+
+  private mergeCloudModules(cloudModules: Module[]): Module[] {
+    return cloudModules.map(cloudMod => {
+      const localMod = this.modules.find(m => m.id === cloudMod.id);
+      if (!localMod) return cloudMod;
+
+      const mergedImage = cloudMod.image === '__local_only__' ? localMod.image : cloudMod.image;
+
+      let mergedWorkspace = cloudMod.workspace;
+      if (cloudMod.workspace?.items && localMod.workspace?.items) {
+        const mergedItems = cloudMod.workspace.items.map(cloudItem => {
+          if (cloudItem.content !== '__local_only__') return cloudItem;
+          const localItem = localMod.workspace!.items.find(i => i.id === cloudItem.id);
+          return localItem ? { ...cloudItem, content: localItem.content } : cloudItem;
+        });
+        mergedWorkspace = { ...cloudMod.workspace, items: mergedItems };
+      }
+
+      return { ...cloudMod, image: mergedImage, workspace: mergedWorkspace };
+    });
   }
 
   private pushHistory(): void {
