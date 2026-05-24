@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import path from 'path';
 
 let mainWindow: BrowserWindow | null;
@@ -49,4 +49,35 @@ app.on('activate', () => {
   if (mainWindow === null) {
     createWindow();
   }
+});
+
+ipcMain.on('show-timer-overlay', (_event, type: 'work' | 'break') => {
+  const display = screen.getPrimaryDisplay();
+  const { x, y, width, height } = display.bounds;
+
+  const overlayWin = new BrowserWindow({
+    x,
+    y,
+    width,
+    height,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    hasShadow: false,
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  overlayWin.setIgnoreMouseEvents(true, { forward: true });
+  overlayWin.loadFile(path.join(__dirname, '../renderer/overlay.html'), { query: { type } });
+
+  // Close after animation finishes (cardIn 0.65s + hold 3.5s + cardOut 0.55s + buffer)
+  setTimeout(() => {
+    if (!overlayWin.isDestroyed()) overlayWin.close();
+  }, 5000);
 });

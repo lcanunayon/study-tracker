@@ -103,6 +103,7 @@ class StudyTrackerApp {
   private isSettingsView = false;
   private theme: 'dark' | 'light' = 'dark';
   private accentColor = '#00d4ff';
+  private overlayEnabled = true;
   private backupStatus = '';
   private lastCloudBackupTime: number | null = null;
 
@@ -186,6 +187,7 @@ class StudyTrackerApp {
     this.theme = (localStorage.getItem('study-tracker-theme') as 'dark' | 'light') || 'dark';
     this.aiApiKey = localStorage.getItem('study-tracker-ai-key') || '';
     this.accentColor = localStorage.getItem('study-tracker-accent') || '#00d4ff';
+    this.overlayEnabled = localStorage.getItem('study-tracker-overlay') !== 'false';
     const savedWork = parseInt(localStorage.getItem('study-tracker-pomodoro-work') || '25', 10);
     const savedBreak = parseInt(localStorage.getItem('study-tracker-pomodoro-break') || '5', 10);
     if (!isNaN(savedWork) && savedWork >= 1 && savedWork <= 120) this.pomodoroWorkMinutes = savedWork;
@@ -1546,6 +1548,14 @@ class StudyTrackerApp {
         if (picker) picker.value = color;
       });
     });
+
+    const overlayToggle = document.getElementById('overlayEnabledToggle') as HTMLInputElement | null;
+    if (overlayToggle) {
+      overlayToggle.addEventListener('change', () => {
+        this.overlayEnabled = overlayToggle.checked;
+        localStorage.setItem('study-tracker-overlay', this.overlayEnabled ? 'true' : 'false');
+      });
+    }
 
     // Main view events
     const addModuleBtn = document.getElementById('addModuleBtn');
@@ -4367,6 +4377,9 @@ class StudyTrackerApp {
         // KEY: advance the phase-start timestamp so the next flush sees correct elapsed
         this.pomodoroPhaseStartTs = now - phaseElapsed * 1000;
         this.playBeep();
+        if (this.overlayEnabled) {
+          (window as any).electron.ipcRenderer.send('show-timer-overlay', this.pomodoroPhase);
+        }
         this.updatePomodoroPhaseLabel();
       }
 
@@ -4775,6 +4788,19 @@ class StudyTrackerApp {
                   <button class="accent-preset" data-color="#f97316" style="background:#f97316" title="Orange"></button>
                   <button class="accent-preset" data-color="#ffffff" style="background:#ffffff;border-color:rgba(255,255,255,0.3)" title="White"></button>
                 </div>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+                <div>
+                  <div class="settings-card-title">Timer Overlay</div>
+                  <div class="settings-card-desc">Show an animated overlay when the Pomodoro timer switches phases — alarm clock when it's time to work, sleeping when it's time to rest.</div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="overlayEnabledToggle" ${this.overlayEnabled ? 'checked' : ''}>
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
             </div>
           </div>
