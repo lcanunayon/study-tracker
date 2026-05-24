@@ -102,6 +102,7 @@ class StudyTrackerApp {
   // Settings & theme
   private isSettingsView = false;
   private theme: 'dark' | 'light' = 'dark';
+  private accentColor = '#00d4ff';
   private backupStatus = '';
   private lastCloudBackupTime: number | null = null;
 
@@ -184,12 +185,14 @@ class StudyTrackerApp {
   constructor() {
     this.theme = (localStorage.getItem('study-tracker-theme') as 'dark' | 'light') || 'dark';
     this.aiApiKey = localStorage.getItem('study-tracker-ai-key') || '';
+    this.accentColor = localStorage.getItem('study-tracker-accent') || '#00d4ff';
     const savedWork = parseInt(localStorage.getItem('study-tracker-pomodoro-work') || '25', 10);
     const savedBreak = parseInt(localStorage.getItem('study-tracker-pomodoro-break') || '5', 10);
     if (!isNaN(savedWork) && savedWork >= 1 && savedWork <= 120) this.pomodoroWorkMinutes = savedWork;
     if (!isNaN(savedBreak) && savedBreak >= 1 && savedBreak <= 60) this.pomodoroBreakMinutes = savedBreak;
     this.pomodoroSecondsLeft = this.pomodoroWorkMinutes * 60;
     this.applyTheme();
+    this.applyAccentColor();
     this.loadModules();
     this.pushHistory();
     this.initializeHTML();
@@ -434,20 +437,20 @@ class StudyTrackerApp {
         <div class="media-viewer-content" style="
           position: relative;
           background: #1a1a2e;
-          border: 1px solid rgba(0,212,255,0.35);
+          border: 1px solid rgba(var(--accent-rgb),0.35);
           border-radius: 10px;
           padding: 52px 24px 24px;
           width: min(90vw, 960px);
           max-height: 90vh;
           overflow: hidden;
-          box-shadow: 0 0 60px rgba(0,212,255,0.2), 0 20px 60px rgba(0,0,0,0.8);
+          box-shadow: 0 0 60px rgba(var(--accent-rgb),0.2), 0 20px 60px rgba(0,0,0,0.8);
         ">
           <button id="closeMediaViewer" style="
             position: absolute;
             top: 12px; right: 16px;
-            background: rgba(0,212,255,0.08);
-            border: 1px solid rgba(0,212,255,0.3);
-            color: #00d4ff;
+            background: rgba(var(--accent-rgb),0.08);
+            border: 1px solid rgba(var(--accent-rgb),0.3);
+            color: var(--accent);
             width: 32px; height: 32px;
             border-radius: 50%;
             cursor: pointer;
@@ -479,31 +482,31 @@ class StudyTrackerApp {
     ].join(';');
 
     overlay.innerHTML = `
-      <div style='background:#0f0f1a;border:1px solid rgba(0,212,255,0.3);border-radius:12px;width:min(820px,100%);max-height:88vh;overflow-y:auto;position:relative;box-shadow:0 0 80px rgba(0,212,255,0.12),0 20px 60px rgba(0,0,0,0.9);scrollbar-width:thin;scrollbar-color:rgba(0,212,255,0.25) transparent;'>
+      <div style='background:#0f0f1a;border:1px solid rgba(var(--accent-rgb),0.3);border-radius:12px;width:min(820px,100%);max-height:88vh;overflow-y:auto;position:relative;box-shadow:0 0 80px rgba(var(--accent-rgb),0.12),0 20px 60px rgba(0,0,0,0.9);scrollbar-width:thin;scrollbar-color:rgba(var(--accent-rgb),0.25) transparent;'>
 
         <!-- Close -->
-        <button id='welcomeClose' style='position:absolute;top:14px;right:14px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.25);color:#00d4ff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;z-index:1;'>✕</button>
+        <button id='welcomeClose' style='position:absolute;top:14px;right:14px;background:rgba(var(--accent-rgb),0.08);border:1px solid rgba(var(--accent-rgb),0.25);color:var(--accent);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;z-index:1;'>✕</button>
 
         <!-- Header -->
         <div style='padding:40px 40px 0;text-align:center;'>
           <div style='font-size:52px;margin-bottom:14px;'>📚</div>
-          <h1 style='color:#00d4ff;font-size:26px;font-weight:700;margin:0 0 10px;letter-spacing:-0.3px;'>Welcome to Study Tracker</h1>
+          <h1 style='color:var(--accent);font-size:26px;font-weight:700;margin:0 0 10px;letter-spacing:-0.3px;'>Welcome to Study Tracker</h1>
           <p style='color:rgba(255,255,255,0.55);font-size:14px;max-width:540px;margin:0 auto;line-height:1.7;'>Your all-in-one visual study workspace. Organize modules, take notes, draw diagrams, connect ideas, and manage files — all on an infinite canvas.</p>
         </div>
 
         <!-- Overview image slot -->
         <div style='padding:24px 40px 0;'>
           <img src='./assets/welcome-overview.jpg' alt='Workspace overview' style='width:100%;border-radius:8px;display:block;' onerror='this.style.display="none";this.nextElementSibling.style.display="flex";'>
-          <div style='display:none;background:#111827;border:2px dashed rgba(0,212,255,0.18);border-radius:8px;height:170px;flex-direction:column;align-items:center;justify-content:center;gap:8px;'>
+          <div style='display:none;background:#111827;border:2px dashed rgba(var(--accent-rgb),0.18);border-radius:8px;height:170px;flex-direction:column;align-items:center;justify-content:center;gap:8px;'>
             <span style='font-size:32px;'>🖼</span>
             <span style='color:rgba(255,255,255,0.35);font-size:13px;'>Workspace overview screenshot</span>
-            <span style='color:rgba(0,212,255,0.45);font-size:11px;font-family:monospace;'>dist/renderer/assets/welcome-overview.jpg</span>
+            <span style='color:rgba(var(--accent-rgb),0.45);font-size:11px;font-family:monospace;'>dist/renderer/assets/welcome-overview.jpg</span>
           </div>
         </div>
 
         <!-- Getting Started -->
         <div style='padding:28px 40px 0;'>
-          <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 12px;'>🚀 Getting Started</h2>
+          <h2 style='color:var(--accent);font-size:16px;font-weight:600;margin:0 0 12px;'>🚀 Getting Started</h2>
           <ol style='color:rgba(255,255,255,0.72);font-size:13px;line-height:2;padding-left:20px;margin:0;'>
             <li>Click <strong style='color:#fff;'>+ New Module</strong> on the home screen to create a study module.</li>
             <li>Give it a name, description, and an optional cover image, then click <strong style='color:#fff;'>Create Module</strong>.</li>
@@ -515,52 +518,52 @@ class StudyTrackerApp {
 
         <!-- Tools grid -->
         <div style='padding:28px 40px 0;'>
-          <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 14px;'>🛠 Toolbar Tools</h2>
+          <h2 style='color:var(--accent);font-size:16px;font-weight:600;margin:0 0 14px;'>🛠 Toolbar Tools</h2>
           <div style='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;'>
 
-            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+            <div style='background:#111827;border:1px solid rgba(var(--accent-rgb),0.14);border-radius:8px;padding:14px 12px;'>
               <div style='font-size:20px;margin-bottom:7px;'>🖱</div>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Pointer</div>
               <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Select, move, and resize items. Drag the blue corner handle to resize. Double-click to edit.</div>
             </div>
 
-            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+            <div style='background:#111827;border:1px solid rgba(var(--accent-rgb),0.14);border-radius:8px;padding:14px 12px;'>
               <div style='font-size:20px;margin-bottom:7px;'>📝</div>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Note</div>
               <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Click the canvas to drop a sticky note. Double-click the note to edit its content.</div>
             </div>
 
-            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+            <div style='background:#111827;border:1px solid rgba(var(--accent-rgb),0.14);border-radius:8px;padding:14px 12px;'>
               <div style='font-size:20px;margin-bottom:7px;'>✏️</div>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Draw</div>
               <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Freehand draw on the canvas. Adjust brush color and size from the toolbar sliders.</div>
             </div>
 
-            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+            <div style='background:#111827;border:1px solid rgba(var(--accent-rgb),0.14);border-radius:8px;padding:14px 12px;'>
               <div style='font-size:20px;margin-bottom:7px;'>⬜</div>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Erase</div>
               <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Erase drawn strokes. Adjust eraser size with the slider that appears in the toolbar.</div>
             </div>
 
-            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+            <div style='background:#111827;border:1px solid rgba(var(--accent-rgb),0.14);border-radius:8px;padding:14px 12px;'>
               <div style='font-size:20px;margin-bottom:7px;'>📎</div>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Media</div>
               <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Insert images, videos, or PDFs. Double-click to open a viewer. Resize images with Pointer.</div>
             </div>
 
-            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+            <div style='background:#111827;border:1px solid rgba(var(--accent-rgb),0.14);border-radius:8px;padding:14px 12px;'>
               <div style='font-size:20px;margin-bottom:7px;'>🔤</div>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Text</div>
               <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Place a text label. Choose font and size from the toolbar. Double-click to edit the text.</div>
             </div>
 
-            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+            <div style='background:#111827;border:1px solid rgba(var(--accent-rgb),0.14);border-radius:8px;padding:14px 12px;'>
               <div style='font-size:20px;margin-bottom:7px;'>🔗</div>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Connect</div>
               <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Click one item then another to draw an arrow. Right-click arrows to remove connections.</div>
             </div>
 
-            <div style='background:#111827;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:14px 12px;'>
+            <div style='background:#111827;border:1px solid rgba(var(--accent-rgb),0.14);border-radius:8px;padding:14px 12px;'>
               <div style='font-size:20px;margin-bottom:7px;'>📁</div>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Folder</div>
               <div style='color:rgba(255,255,255,0.52);font-size:12px;line-height:1.55;'>Drop a folder on the canvas. Double-click to open and manage files. Supports drag-and-drop.</div>
@@ -572,16 +575,16 @@ class StudyTrackerApp {
         <!-- Toolbar image slot -->
         <div style='padding:18px 40px 0;'>
           <img src='./assets/welcome-toolbar.jpg' alt='Toolbar' style='width:100%;border-radius:6px;display:block;' onerror='this.style.display="none";this.nextElementSibling.style.display="flex";'>
-          <div style='display:none;background:#111827;border:2px dashed rgba(0,212,255,0.18);border-radius:6px;height:70px;flex-direction:column;align-items:center;justify-content:center;gap:5px;'>
+          <div style='display:none;background:#111827;border:2px dashed rgba(var(--accent-rgb),0.18);border-radius:6px;height:70px;flex-direction:column;align-items:center;justify-content:center;gap:5px;'>
             <span style='color:rgba(255,255,255,0.35);font-size:12px;'>Toolbar screenshot</span>
-            <span style='color:rgba(0,212,255,0.45);font-size:11px;font-family:monospace;'>dist/renderer/assets/welcome-toolbar.jpg</span>
+            <span style='color:rgba(var(--accent-rgb),0.45);font-size:11px;font-family:monospace;'>dist/renderer/assets/welcome-toolbar.jpg</span>
           </div>
         </div>
 
         <!-- Navigation + Shortcuts -->
         <div style='padding:28px 40px 0;display:grid;grid-template-columns:1fr 1fr;gap:28px;'>
           <div>
-            <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 12px;'>🗺 Canvas Navigation</h2>
+            <h2 style='color:var(--accent);font-size:16px;font-weight:600;margin:0 0 12px;'>🗺 Canvas Navigation</h2>
             <ul style='color:rgba(255,255,255,0.68);font-size:13px;line-height:2;padding-left:16px;margin:0;'>
               <li><strong style='color:#fff;'>Right-click drag</strong> — pan the canvas</li>
               <li><strong style='color:#fff;'>Scroll wheel</strong> — zoom in and out</li>
@@ -592,33 +595,33 @@ class StudyTrackerApp {
             </ul>
           </div>
           <div>
-            <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 12px;'>⌨ Keyboard Shortcuts</h2>
+            <h2 style='color:var(--accent);font-size:16px;font-weight:600;margin:0 0 12px;'>⌨ Keyboard Shortcuts</h2>
             <table style='width:100%;border-collapse:collapse;font-size:13px;'>
-              <tr><td style='color:rgba(0,212,255,0.9);font-family:monospace;padding:4px 14px 4px 0;white-space:nowrap;'>Ctrl + Z</td><td style='color:rgba(255,255,255,0.68);'>Undo last action</td></tr>
-              <tr><td style='color:rgba(0,212,255,0.9);font-family:monospace;padding:4px 14px 4px 0;'>Ctrl + Y</td><td style='color:rgba(255,255,255,0.68);'>Redo</td></tr>
-              <tr><td style='color:rgba(0,212,255,0.9);font-family:monospace;padding:4px 14px 4px 0;white-space:nowrap;'>Ctrl + Enter</td><td style='color:rgba(255,255,255,0.68);'>Finish editing text / note</td></tr>
-              <tr><td style='color:rgba(0,212,255,0.9);font-family:monospace;padding:4px 14px 4px 0;'>Escape</td><td style='color:rgba(255,255,255,0.68);'>Cancel editing or close</td></tr>
+              <tr><td style='color:rgba(var(--accent-rgb),0.9);font-family:monospace;padding:4px 14px 4px 0;white-space:nowrap;'>Ctrl + Z</td><td style='color:rgba(255,255,255,0.68);'>Undo last action</td></tr>
+              <tr><td style='color:rgba(var(--accent-rgb),0.9);font-family:monospace;padding:4px 14px 4px 0;'>Ctrl + Y</td><td style='color:rgba(255,255,255,0.68);'>Redo</td></tr>
+              <tr><td style='color:rgba(var(--accent-rgb),0.9);font-family:monospace;padding:4px 14px 4px 0;white-space:nowrap;'>Ctrl + Enter</td><td style='color:rgba(255,255,255,0.68);'>Finish editing text / note</td></tr>
+              <tr><td style='color:rgba(var(--accent-rgb),0.9);font-family:monospace;padding:4px 14px 4px 0;'>Escape</td><td style='color:rgba(255,255,255,0.68);'>Cancel editing or close</td></tr>
             </table>
           </div>
         </div>
 
         <!-- Tips -->
         <div style='padding:28px 40px 0;'>
-          <h2 style='color:#00d4ff;font-size:16px;font-weight:600;margin:0 0 12px;'>💡 Tips</h2>
+          <h2 style='color:var(--accent);font-size:16px;font-weight:600;margin:0 0 12px;'>💡 Tips</h2>
           <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;'>
-            <div style='background:#111827;border-left:3px solid #00d4ff;border-radius:0 6px 6px 0;padding:10px 14px;'>
+            <div style='background:#111827;border-left:3px solid var(--accent);border-radius:0 6px 6px 0;padding:10px 14px;'>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Naming items</div>
               <div style='color:rgba(255,255,255,0.55);font-size:12px;line-height:1.55;'>Right-click any item and choose Rename to give it a display label shown on the tile.</div>
             </div>
-            <div style='background:#111827;border-left:3px solid #00d4ff;border-radius:0 6px 6px 0;padding:10px 14px;'>
+            <div style='background:#111827;border-left:3px solid var(--accent);border-radius:0 6px 6px 0;padding:10px 14px;'>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Live text styling</div>
               <div style='color:rgba(255,255,255,0.55);font-size:12px;line-height:1.55;'>Select a text item with the Pointer tool — the font family and size dropdowns in the toolbar update it live.</div>
             </div>
-            <div style='background:#111827;border-left:3px solid #00d4ff;border-radius:0 6px 6px 0;padding:10px 14px;'>
+            <div style='background:#111827;border-left:3px solid var(--accent);border-radius:0 6px 6px 0;padding:10px 14px;'>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Folder drag-drop</div>
               <div style='color:rgba(255,255,255,0.55);font-size:12px;line-height:1.55;'>Drag files from your file explorer directly onto a Folder tile on the canvas to add them instantly.</div>
             </div>
-            <div style='background:#111827;border-left:3px solid #00d4ff;border-radius:0 6px 6px 0;padding:10px 14px;'>
+            <div style='background:#111827;border-left:3px solid var(--accent);border-radius:0 6px 6px 0;padding:10px 14px;'>
               <div style='color:#fff;font-size:13px;font-weight:600;margin-bottom:4px;'>Multiple connections</div>
               <div style='color:rgba(255,255,255,0.55);font-size:12px;line-height:1.55;'>An item can have many connections. Use "Remove entire structure" to remove a whole connected group at once.</div>
             </div>
@@ -626,12 +629,12 @@ class StudyTrackerApp {
         </div>
 
         <!-- Footer -->
-        <div style='padding:24px 40px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(0,212,255,0.1);margin-top:28px;gap:12px;flex-wrap:wrap;'>
+        <div style='padding:24px 40px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(var(--accent-rgb),0.1);margin-top:28px;gap:12px;flex-wrap:wrap;'>
           <label style='display:flex;align-items:center;gap:10px;cursor:pointer;color:rgba(255,255,255,0.5);font-size:13px;user-select:none;'>
-            <input type='checkbox' id='welcomeNeverShow' style='width:15px;height:15px;accent-color:#00d4ff;cursor:pointer;'>
+            <input type='checkbox' id='welcomeNeverShow' style='width:15px;height:15px;accent-color:var(--accent);cursor:pointer;'>
             Don't show this again
           </label>
-          <button id='welcomeGetStarted' style='background:#00d4ff;color:#000;border:none;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:0.3px;'>Get Started →</button>
+          <button id='welcomeGetStarted' style='background:var(--accent);color:#000;border:none;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:0.3px;'>Get Started →</button>
         </div>
 
       </div>
@@ -1395,27 +1398,27 @@ class StudyTrackerApp {
             <button class="tool-btn" id="toolConnect" title="Connect Items">🔗</button>
             <button class="tool-btn" id="toolFolder" title="Create Folder">📁</button>
             <input type="color" id="drawColor" value="#000000" title="Draw Color">
-            <div id="toolOptions" style="display:none;align-items:center;gap:6px;flex-shrink:0;border-left:1px solid rgba(0,212,255,0.2);padding-left:8px;margin-left:2px;">
+            <div id="toolOptions" style="display:none;align-items:center;gap:6px;flex-shrink:0;border-left:1px solid rgba(var(--accent-rgb),0.2);padding-left:8px;margin-left:2px;">
               <div id="optBrushSize" style="display:none;align-items:center;gap:5px;">
                 <span style="color:rgba(255,255,255,0.5);font-size:11px;">Brush</span>
-                <input type="range" id="brushSizeSlider" min="1" max="50" value="2" style="width:72px;accent-color:#00d4ff;cursor:pointer;vertical-align:middle;">
-                <span id="brushSizeVal" style="color:#00d4ff;font-size:11px;min-width:20px;">2</span>
+                <input type="range" id="brushSizeSlider" min="1" max="50" value="2" style="width:72px;accent-color:var(--accent);cursor:pointer;vertical-align:middle;">
+                <span id="brushSizeVal" style="color:var(--accent);font-size:11px;min-width:20px;">2</span>
               </div>
               <div id="optEraseSize" style="display:none;align-items:center;gap:5px;">
                 <span style="color:rgba(255,255,255,0.5);font-size:11px;">Eraser</span>
-                <input type="range" id="eraseSizeSlider" min="5" max="100" value="20" style="width:72px;accent-color:#00d4ff;cursor:pointer;vertical-align:middle;">
-                <span id="eraseSizeVal" style="color:#00d4ff;font-size:11px;min-width:26px;">20</span>
+                <input type="range" id="eraseSizeSlider" min="5" max="100" value="20" style="width:72px;accent-color:var(--accent);cursor:pointer;vertical-align:middle;">
+                <span id="eraseSizeVal" style="color:var(--accent);font-size:11px;min-width:26px;">20</span>
               </div>
               <div id="optTextStyle" style="display:none;align-items:center;gap:5px;">
                 <span style="color:rgba(255,255,255,0.5);font-size:11px;">Size</span>
-                <select id="textSizeSelect" style="background:#1a1a2e;border:1px solid rgba(0,212,255,0.3);color:#fff;border-radius:4px;padding:2px 5px;font-size:12px;cursor:pointer;outline:none;">
+                <select id="textSizeSelect" style="background:#1a1a2e;border:1px solid rgba(var(--accent-rgb),0.3);color:#fff;border-radius:4px;padding:2px 5px;font-size:12px;cursor:pointer;outline:none;">
                   <option value="10" style="background:#1a1a2e;color:#fff;">10</option><option value="12" style="background:#1a1a2e;color:#fff;">12</option><option value="14" style="background:#1a1a2e;color:#fff;">14</option>
                   <option value="16" selected style="background:#1a1a2e;color:#fff;">16</option><option value="18" style="background:#1a1a2e;color:#fff;">18</option><option value="20" style="background:#1a1a2e;color:#fff;">20</option>
                   <option value="24" style="background:#1a1a2e;color:#fff;">24</option><option value="28" style="background:#1a1a2e;color:#fff;">28</option><option value="32" style="background:#1a1a2e;color:#fff;">32</option>
                   <option value="40" style="background:#1a1a2e;color:#fff;">40</option><option value="48" style="background:#1a1a2e;color:#fff;">48</option><option value="64" style="background:#1a1a2e;color:#fff;">64</option>
                 </select>
                 <span style="color:rgba(255,255,255,0.5);font-size:11px;margin-left:4px;">Font</span>
-                <select id="textFontSelect" style="background:#1a1a2e;border:1px solid rgba(0,212,255,0.3);color:#fff;border-radius:4px;padding:2px 5px;font-size:12px;cursor:pointer;outline:none;max-width:130px;">
+                <select id="textFontSelect" style="background:#1a1a2e;border:1px solid rgba(var(--accent-rgb),0.3);color:#fff;border-radius:4px;padding:2px 5px;font-size:12px;cursor:pointer;outline:none;max-width:130px;">
                   <option value="Arial" style="background:#1a1a2e;color:#fff;">Arial</option>
                   <option value="Georgia" style="background:#1a1a2e;color:#fff;">Georgia</option>
                   <option value="Times New Roman" style="background:#1a1a2e;color:#fff;">Times New Roman</option>
@@ -1433,7 +1436,7 @@ class StudyTrackerApp {
             <div class="toolbar-spacer"></div>
             <button class="tool-btn" id="zoomIn" title="Zoom In">🔍+</button>
             <button class="tool-btn" id="zoomOut" title="Zoom Out">🔍-</button>
-            <span id="zoomLevel" style="color:#00d4ff;font-size:12px;white-space:nowrap;flex-shrink:0;margin:0 10px;">100%</span>
+            <span id="zoomLevel" style="color:var(--accent);font-size:12px;white-space:nowrap;flex-shrink:0;margin:0 10px;">100%</span>
           </div>
           <div class="roadmap-sel-bar" id="roadmapSelBar" style="display:none;">
             <span class="roadmap-sel-info">
@@ -1522,6 +1525,27 @@ class StudyTrackerApp {
     if (themeLightBtn) {
       themeLightBtn.addEventListener('click', () => this.setTheme('light'));
     }
+    const accentColorPicker = document.getElementById('accentColorPicker') as HTMLInputElement | null;
+    if (accentColorPicker) {
+      accentColorPicker.addEventListener('input', () => {
+        this.accentColor = accentColorPicker.value;
+        localStorage.setItem('study-tracker-accent', this.accentColor);
+        this.applyAccentColor();
+        // Sync the picker value display
+        accentColorPicker.value = this.accentColor;
+      });
+    }
+    document.querySelectorAll<HTMLButtonElement>('.accent-preset').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const color = btn.dataset.color;
+        if (!color) return;
+        this.accentColor = color;
+        localStorage.setItem('study-tracker-accent', color);
+        this.applyAccentColor();
+        const picker = document.getElementById('accentColorPicker') as HTMLInputElement | null;
+        if (picker) picker.value = color;
+      });
+    });
 
     // Main view events
     const addModuleBtn = document.getElementById('addModuleBtn');
@@ -1942,16 +1966,16 @@ class StudyTrackerApp {
     if (uploadArea) {
       uploadArea.addEventListener('dragover', (e) => {
         e.preventDefault();
-        (uploadArea as HTMLElement).style.background = 'rgba(0, 212, 255, 0.1)';
+        (uploadArea as HTMLElement).style.background = 'rgba(var(--accent-rgb), 0.1)';
       });
       
       uploadArea.addEventListener('dragleave', () => {
-        (uploadArea as HTMLElement).style.background = 'rgba(0, 212, 255, 0.02)';
+        (uploadArea as HTMLElement).style.background = 'rgba(var(--accent-rgb), 0.02)';
       });
       
       uploadArea.addEventListener('drop', (e) => {
         e.preventDefault();
-        (uploadArea as HTMLElement).style.background = 'rgba(0, 212, 255, 0.02)';
+        (uploadArea as HTMLElement).style.background = 'rgba(var(--accent-rgb), 0.02)';
         const files = (e as DragEvent).dataTransfer?.files;
         if (files) this.handleImageUpload(files[0]);
       });
@@ -2033,7 +2057,7 @@ class StudyTrackerApp {
     };
 
     uploadArea.addEventListener('click', () => fileInput.click());
-    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.style.background = 'rgba(0,212,255,0.1)'; });
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.style.background = 'rgba(var(--accent-rgb),0.1)'; });
     uploadArea.addEventListener('dragleave', () => { uploadArea.style.background = ''; });
     uploadArea.addEventListener('drop', (e) => {
       e.preventDefault();
@@ -2462,7 +2486,8 @@ class StudyTrackerApp {
 
     // Draw grid lines
     const gridSize = 30;
-    ctx.strokeStyle = this.theme === 'light' ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 212, 255, 0.15)';
+    const accentRgb = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim() || '0, 212, 255';
+    ctx.strokeStyle = this.theme === 'light' ? 'rgba(0, 0, 0, 0.08)' : `rgba(${accentRgb}, 0.15)`;
     ctx.lineWidth = 1;
 
     for (let x = 0; x < w; x += gridSize) {
@@ -2479,7 +2504,7 @@ class StudyTrackerApp {
     }
 
     // Draw grid dots
-    ctx.fillStyle = this.theme === 'light' ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 212, 255, 0.1)';
+    ctx.fillStyle = this.theme === 'light' ? 'rgba(0, 0, 0, 0.15)' : `rgba(${accentRgb}, 0.1)`;
     for (let x = gridSize / 2; x < w; x += gridSize) {
       for (let y = gridSize / 2; y < h; y += gridSize) {
         ctx.beginPath();
@@ -2563,7 +2588,7 @@ class StudyTrackerApp {
       const arrowSize = 11;
 
       ctx.save();
-      ctx.strokeStyle = 'rgba(0,212,255,0.7)';
+      ctx.strokeStyle = 'rgba(var(--accent-rgb),0.7)';
       ctx.lineWidth = 2;
       ctx.setLineDash([7, 4]);
       ctx.beginPath();
@@ -2573,7 +2598,7 @@ class StudyTrackerApp {
       ctx.setLineDash([]);
 
       // Arrowhead at target end
-      ctx.fillStyle = 'rgba(0,212,255,0.7)';
+      ctx.fillStyle = 'rgba(var(--accent-rgb),0.7)';
       ctx.beginPath();
       ctx.moveTo(bx, by);
       ctx.lineTo(bx - arrowSize * Math.cos(angle - Math.PI / 6), by - arrowSize * Math.sin(angle - Math.PI / 6));
@@ -2593,7 +2618,7 @@ class StudyTrackerApp {
 
     ctx.save();
     // Highlight ring around first selected item
-    ctx.strokeStyle = '#00d4ff';
+    ctx.strokeStyle = 'var(--accent)';
     ctx.lineWidth = 2.5;
     ctx.setLineDash([5, 3]);
     ctx.strokeRect(ix - 3, iy - 3, iw + 6, ih + 6);
@@ -2605,7 +2630,7 @@ class StudyTrackerApp {
     const toCx   = this.mouseCanvasX * ws.zoom;
     const toCy   = this.mouseCanvasY * ws.zoom;
 
-    ctx.strokeStyle = 'rgba(0,212,255,0.45)';
+    ctx.strokeStyle = 'rgba(var(--accent-rgb),0.45)';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -3015,7 +3040,7 @@ class StudyTrackerApp {
       width: ${screenW}px;
       height: ${screenH}px;
       background: rgba(0,0,0,0.55);
-      border: 2px solid #00d4ff;
+      border: 2px solid var(--accent);
       padding: 4px 6px;
       font: ${fs}px ${item.fontFamily || 'Arial'}, sans-serif;
       color: ${item.color || '#ffffff'};
@@ -3173,11 +3198,11 @@ class StudyTrackerApp {
 
     // Draw selection highlight
     if (this.selectedItem?.id === item.id) {
-      ctx.strokeStyle = '#00d4ff';
+      ctx.strokeStyle = 'var(--accent)';
       ctx.lineWidth = 2;
       ctx.strokeRect(0, 0, w, h);
       // Draw resize handles
-      ctx.fillStyle = '#00d4ff';
+      ctx.fillStyle = 'var(--accent)';
       const handleSize = 8;
       ctx.fillRect(w - handleSize, h - handleSize, handleSize, handleSize);
     }
@@ -3275,7 +3300,7 @@ class StudyTrackerApp {
         ctx.fillText(isDragTarget ? '📂' : '📁', w / 2, h / 2 + emojiYOffset);
 
         if (fileCount > 0) {
-          ctx.fillStyle = isDragTarget ? 'rgba(0,255,136,0.85)' : 'rgba(0,212,255,0.75)';
+          ctx.fillStyle = isDragTarget ? 'rgba(0,255,136,0.85)' : 'rgba(var(--accent-rgb),0.75)';
           ctx.font = `bold ${Math.max(9, Math.min(11, w * 0.08))}px Arial`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'top';
@@ -3492,7 +3517,7 @@ class StudyTrackerApp {
       position: fixed;
       left: ${screenX}px; top: ${screenY}px;
       background: #1a1a2e;
-      border: 1px solid rgba(0,212,255,0.3);
+      border: 1px solid rgba(var(--accent-rgb),0.3);
       border-radius: 6px;
       padding: 4px 0;
       z-index: 2147483646;
@@ -3510,7 +3535,7 @@ class StudyTrackerApp {
         text-align: left; cursor: pointer; font-size: 13px;
         white-space: nowrap;
       `;
-      btn.onmouseover = () => { btn.style.background = 'rgba(0,212,255,0.12)'; };
+      btn.onmouseover = () => { btn.style.background = 'rgba(var(--accent-rgb),0.12)'; };
       btn.onmouseout  = () => { btn.style.background = 'none'; };
       btn.onclick = () => { this.hideContextMenu(); onClick(); };
       return btn;
@@ -3519,7 +3544,7 @@ class StudyTrackerApp {
     menu.appendChild(makeBtn('✂  Remove connection', () => this.removeConnection(conn.id)));
 
     const divider = document.createElement('div');
-    divider.style.cssText = 'height:1px;background:rgba(0,212,255,0.15);margin:2px 0;';
+    divider.style.cssText = 'height:1px;background:rgba(var(--accent-rgb),0.15);margin:2px 0;';
     menu.appendChild(divider);
 
     menu.appendChild(makeBtn('🗑  Remove whole structure', () => this.removeConnectedStructure(conn.fromId)));
@@ -3619,7 +3644,7 @@ class StudyTrackerApp {
       width: ${noteScreenW}px;
       height: ${noteScreenH}px;
       background: ${item.color || '#ffeb3b'};
-      border: 2px solid #00d4ff;
+      border: 2px solid var(--accent);
       padding: 6px 8px;
       font: 12px Arial, sans-serif;
       color: rgba(0,0,0,0.85);
@@ -3719,7 +3744,7 @@ class StudyTrackerApp {
       position: fixed;
       left: ${screenX}px; top: ${screenY}px;
       background: #1a1a2e;
-      border: 1px solid rgba(0,212,255,0.3);
+      border: 1px solid rgba(var(--accent-rgb),0.3);
       border-radius: 6px;
       padding: 4px 0;
       z-index: 2147483646;
@@ -3737,7 +3762,7 @@ class StudyTrackerApp {
         text-align: left; cursor: pointer; font-size: 13px;
         white-space: nowrap;
       `;
-      btn.onmouseover = () => { btn.style.background = 'rgba(0,212,255,0.12)'; };
+      btn.onmouseover = () => { btn.style.background = 'rgba(var(--accent-rgb),0.12)'; };
       btn.onmouseout  = () => { btn.style.background = 'none'; };
       btn.onclick = () => { this.hideContextMenu(); onClick(); };
       return btn;
@@ -3746,7 +3771,7 @@ class StudyTrackerApp {
     if (item.type === 'folder') {
       menu.appendChild(makeBtn('📂  Open folder', () => this.openFolderPopup(item)));
       const sep = document.createElement('div');
-      sep.style.cssText = 'height:1px;background:rgba(0,212,255,0.15);margin:2px 0;';
+      sep.style.cssText = 'height:1px;background:rgba(var(--accent-rgb),0.15);margin:2px 0;';
       menu.appendChild(sep);
     }
     menu.appendChild(makeBtn('✏  Rename', () => this.startRenamingItem(item)));
@@ -3756,7 +3781,7 @@ class StudyTrackerApp {
     const ws = this.currentModule?.workspace;
     if (ws?.connections?.some((c) => c.fromId === item.id || c.toId === item.id)) {
       const divider = document.createElement('div');
-      divider.style.cssText = 'height:1px;background:rgba(0,212,255,0.15);margin:2px 0;';
+      divider.style.cssText = 'height:1px;background:rgba(var(--accent-rgb),0.15);margin:2px 0;';
       menu.appendChild(divider);
       menu.appendChild(makeBtn('🔗  Remove connections', () => this.removeAllConnectionsForItem(item.id)));
       menu.appendChild(makeBtn('🗑  Remove whole structure', () => this.removeConnectedStructure(item.id)));
@@ -3820,7 +3845,7 @@ class StudyTrackerApp {
       left: ${itemScreenX}px; top: ${labelBarTop}px;
       width: ${itemScreenW}px; height: 26px;
       background: rgba(10,10,30,0.97);
-      border: 1px solid #00d4ff; border-radius: 3px;
+      border: 1px solid var(--accent); border-radius: 3px;
       color: #fff; font: 12px Arial, sans-serif;
       padding: 2px 8px; z-index: 2147483645;
       outline: none; box-sizing: border-box;
@@ -3892,13 +3917,13 @@ class StudyTrackerApp {
     content.style.cssText = `
       position: relative;
       background: #0d1117;
-      border: 1px solid rgba(0,212,255,0.35);
+      border: 1px solid rgba(var(--accent-rgb),0.35);
       border-radius: 12px;
       width: min(92vw, 820px);
       max-height: 85vh;
       overflow: hidden;
       display: flex; flex-direction: column;
-      box-shadow: 0 0 60px rgba(0,212,255,0.15), 0 20px 60px rgba(0,0,0,0.8);
+      box-shadow: 0 0 60px rgba(var(--accent-rgb),0.15), 0 20px 60px rgba(0,0,0,0.8);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     `;
 
@@ -3907,8 +3932,8 @@ class StudyTrackerApp {
     header.style.cssText = `
       display: flex; align-items: center; justify-content: space-between;
       padding: 14px 20px; gap: 12px;
-      border-bottom: 1px solid rgba(0,212,255,0.15);
-      background: rgba(0,212,255,0.04);
+      border-bottom: 1px solid rgba(var(--accent-rgb),0.15);
+      background: rgba(var(--accent-rgb),0.04);
       flex-shrink: 0;
     `;
 
@@ -3920,7 +3945,7 @@ class StudyTrackerApp {
     folderIcon.style.fontSize = '18px';
     const titleSpan = document.createElement('span');
     titleSpan.textContent = item.name || 'Folder';
-    titleSpan.style.cssText = `color:#00d4ff;font-size:16px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px;`;
+    titleSpan.style.cssText = `color:var(--accent);font-size:16px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px;`;
     titleSpan.title = 'Click to rename';
     titleSpan.onclick = () => {
       const input = document.createElement('input');
@@ -3928,8 +3953,8 @@ class StudyTrackerApp {
       input.value = item.name || '';
       input.placeholder = 'Folder name';
       input.style.cssText = `
-        background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.4);
-        color:#00d4ff;padding:3px 8px;border-radius:4px;
+        background:rgba(var(--accent-rgb),0.08);border:1px solid rgba(var(--accent-rgb),0.4);
+        color:var(--accent);padding:3px 8px;border-radius:4px;
         font-size:15px;font-weight:600;outline:none;width:220px;
         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
       `;
@@ -3958,19 +3983,19 @@ class StudyTrackerApp {
     const addBtn = document.createElement('button');
     addBtn.textContent = '+ Add Files';
     addBtn.style.cssText = `
-      background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);
-      color:#00d4ff;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;
+      background:rgba(var(--accent-rgb),0.12);border:1px solid rgba(var(--accent-rgb),0.4);
+      color:var(--accent);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;
       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
     `;
-    addBtn.onmouseover = () => { addBtn.style.background = 'rgba(0,212,255,0.22)'; };
-    addBtn.onmouseout  = () => { addBtn.style.background = 'rgba(0,212,255,0.12)'; };
+    addBtn.onmouseover = () => { addBtn.style.background = 'rgba(var(--accent-rgb),0.22)'; };
+    addBtn.onmouseout  = () => { addBtn.style.background = 'rgba(var(--accent-rgb),0.12)'; };
     addBtn.onclick = () => this.triggerAddFilesToFolder(item);
 
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     closeBtn.style.cssText = `
-      background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.3);
-      color:#00d4ff;width:32px;height:32px;border-radius:50%;
+      background:rgba(var(--accent-rgb),0.08);border:1px solid rgba(var(--accent-rgb),0.3);
+      color:var(--accent);width:32px;height:32px;border-radius:50%;
       cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;
     `;
     closeBtn.onclick = () => this.closeFolderPopup();
@@ -3984,11 +4009,11 @@ class StudyTrackerApp {
     const dropOverlay = document.createElement('div');
     dropOverlay.style.cssText = `
       display:none;position:absolute;inset:0;
-      background:rgba(0,212,255,0.07);
-      border:2px dashed rgba(0,212,255,0.55);
+      background:rgba(var(--accent-rgb),0.07);
+      border:2px dashed rgba(var(--accent-rgb),0.55);
       border-radius:12px;
       align-items:center;justify-content:center;
-      font-size:22px;color:#00d4ff;
+      font-size:22px;color:var(--accent);
       pointer-events:none;z-index:10;
     `;
     dropOverlay.textContent = '📂  Drop files here';
@@ -4039,7 +4064,7 @@ class StudyTrackerApp {
           font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
         ">
           <div style="font-size:52px;margin-bottom:14px;">📂</div>
-          <div>No files yet — drag files in or click <strong style="color:rgba(0,212,255,0.6)">+ Add Files</strong></div>
+          <div>No files yet — drag files in or click <strong style="color:rgba(var(--accent-rgb),0.6)">+ Add Files</strong></div>
         </div>`;
       return;
     }
@@ -4081,8 +4106,8 @@ class StudyTrackerApp {
       nameEl.style.cssText = `font-size:11px;color:rgba(255,255,255,0.65);text-align:center;word-break:break-word;line-height:1.3;`;
 
       card.onmouseover = () => {
-        card.style.background = 'rgba(0,212,255,0.08)';
-        card.style.borderColor = 'rgba(0,212,255,0.3)';
+        card.style.background = 'rgba(var(--accent-rgb),0.08)';
+        card.style.borderColor = 'rgba(var(--accent-rgb),0.3)';
         delBtn.style.opacity = '1';
       };
       card.onmouseout = () => {
@@ -4213,7 +4238,7 @@ class StudyTrackerApp {
     dlBtn.href = file.content;
     dlBtn.download = file.name;
     dlBtn.textContent = '⬇  Download file';
-    dlBtn.style.cssText = 'color:#00d4ff;font-size:13px;text-decoration:none;border:1px solid rgba(0,212,255,0.4);padding:6px 16px;border-radius:6px;';
+    dlBtn.style.cssText = 'color:var(--accent);font-size:13px;text-decoration:none;border:1px solid rgba(var(--accent-rgb),0.4);padding:6px 16px;border-radius:6px;';
     wrap.appendChild(icon);
     wrap.appendChild(nm);
     wrap.appendChild(dlBtn);
@@ -4504,6 +4529,55 @@ class StudyTrackerApp {
     this.render();
   }
 
+  private applyAccentColor(): void {
+    const hex = this.accentColor;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+
+    // Convert to HSL to compute consistent dark/deep variants
+    const rn = r / 255, gn = g / 255, bn = b / 255;
+    const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+    let h = 0, s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+      else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+      else h = ((rn - gn) / d + 4) / 6;
+    }
+    const hDeg = h * 360;
+    const sPct = s * 100;
+
+    const hslToHex = (hh: number, ss: number, ll: number): string => {
+      const sn = ss / 100, ln = ll / 100;
+      const a = sn * Math.min(ln, 1 - ln);
+      const f = (n: number) => {
+        const k = (n + hh / 30) % 12;
+        const c = ln - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+        return Math.round(255 * c).toString(16).padStart(2, '0');
+      };
+      return `#${f(0)}${f(8)}${f(4)}`;
+    };
+
+    const lPct = l * 100;
+    // --accent-dim: ~80% lightness of original (dark mode gradient secondary)
+    const dimHex = hslToHex(hDeg, sPct, Math.max(5, lPct * 0.80));
+    // --accent-deep: ~65% lightness of original (light mode text/borders)
+    const deepHex = hslToHex(hDeg, sPct, Math.max(5, lPct * 0.65));
+    const deepR = parseInt(deepHex.slice(1, 3), 16);
+    const deepG = parseInt(deepHex.slice(3, 5), 16);
+    const deepB = parseInt(deepHex.slice(5, 7), 16);
+
+    const root = document.documentElement;
+    root.style.setProperty('--accent', hex);
+    root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+    root.style.setProperty('--accent-dim', dimHex);
+    root.style.setProperty('--accent-deep', deepHex);
+    root.style.setProperty('--accent-deep-rgb', `${deepR}, ${deepG}, ${deepB}`);
+  }
+
   // ─── Settings navigation ────────────────────────────────────────────────────
 
   private openSettings(): void {
@@ -4661,7 +4735,7 @@ class StudyTrackerApp {
               <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
                 <input type="password" id="aiApiKeyInput" value="${this.escapeHtml(this.aiApiKey)}"
                   placeholder="AIza..."
-                  style="flex:1;padding:8px 12px;background:var(--input-bg,#1a1a2e);border:1px solid rgba(0,212,255,0.3);color:var(--text-primary,#fff);border-radius:6px;font-size:13px;outline:none;">
+                  style="flex:1;padding:8px 12px;background:var(--input-bg,#1a1a2e);border:1px solid rgba(var(--accent-rgb),0.3);color:var(--text-primary,#fff);border-radius:6px;font-size:13px;outline:none;">
                 <button class="settings-btn-action" id="saveApiKeyBtn">Save</button>
               </div>
               <div id="apiKeyStatus" style="font-size:12px;color:#22c55e;margin-top:4px;min-height:16px;"></div>
@@ -4683,6 +4757,24 @@ class StudyTrackerApp {
                   <span class="theme-option-icon">☀</span>
                   Light
                 </button>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-card-title">Accent Color</div>
+              <div class="settings-card-desc">Choose the accent color used throughout the app — buttons, borders, timer, grid lines, and more.</div>
+              <div class="accent-picker-row">
+                <input type="color" id="accentColorPicker" value="${this.accentColor}" class="accent-color-input">
+                <div class="accent-presets">
+                  <button class="accent-preset" data-color="#00d4ff" style="background:#00d4ff" title="Cyan (default)"></button>
+                  <button class="accent-preset" data-color="#7c3aed" style="background:#7c3aed" title="Purple"></button>
+                  <button class="accent-preset" data-color="#10b981" style="background:#10b981" title="Emerald"></button>
+                  <button class="accent-preset" data-color="#f59e0b" style="background:#f59e0b" title="Amber"></button>
+                  <button class="accent-preset" data-color="#ef4444" style="background:#ef4444" title="Red"></button>
+                  <button class="accent-preset" data-color="#ec4899" style="background:#ec4899" title="Pink"></button>
+                  <button class="accent-preset" data-color="#f97316" style="background:#f97316" title="Orange"></button>
+                  <button class="accent-preset" data-color="#ffffff" style="background:#ffffff;border-color:rgba(255,255,255,0.3)" title="White"></button>
+                </div>
               </div>
             </div>
           </div>
@@ -4884,7 +4976,7 @@ Rules:
       2: { bg: '#2e1065', border: '#a855f7', badge: '#a855f7' },
       3: { bg: '#431407', border: '#f97316', badge: '#f97316' },
     };
-    const defaultColor = { bg: '#1a1a2e', border: '#00d4ff', badge: '#00d4ff' };
+    const defaultColor = { bg: '#1a1a2e', border: 'var(--accent)', badge: 'var(--accent)' };
     const levelLabels: Record<number, string> = {
       0: 'Beginner', 1: 'Intermediate', 2: 'Advanced', 3: 'Expert',
     };
@@ -4928,7 +5020,7 @@ Rules:
                  style="position:absolute;top:0;left:0;pointer-events:none;">
               <defs>
                 <marker id="rm-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                  <polygon points="0 0, 10 3.5, 0 7" fill="rgba(0,212,255,0.8)" />
+                  <polygon points="0 0, 10 3.5, 0 7" fill="rgba(var(--accent-rgb),0.8)" />
                 </marker>
               </defs>
             </svg>
@@ -4991,7 +5083,7 @@ Rules:
       const cy = (y2 - y1) * 0.45;
       const path = document.createElementNS(svgNS, 'path');
       path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${y1 + cy}, ${x2} ${y2 - cy}, ${x2} ${y2}`);
-      path.setAttribute('stroke', 'rgba(0,212,255,0.75)');
+      path.setAttribute('stroke', 'rgba(var(--accent-rgb),0.75)');
       path.setAttribute('stroke-width', '2');
       path.setAttribute('fill', 'none');
       path.setAttribute('marker-end', 'url(#rm-arrow)');
