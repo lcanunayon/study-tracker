@@ -107,9 +107,8 @@ async function prepareForFirestore(modules: object[]): Promise<object[]> {
   return out;
 }
 
-export async function saveUserModules(userId: string, modules: object[], archiveGroups: object[] = []): Promise<number> {
+export async function saveUserModules(userId: string, modules: object[], archiveGroups: object[] = [], updatedAt = Date.now()): Promise<number> {
   const prepared = await prepareForFirestore(modules);
-  const updatedAt = Date.now();
   await setDoc(doc(db, 'users', userId), {
     modulesJson: JSON.stringify(prepared),
     archiveGroupsJson: JSON.stringify(archiveGroups),

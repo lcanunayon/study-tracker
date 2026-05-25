@@ -226,6 +226,12 @@ class StudyTrackerApp {
               ? this.mergeCloudModules(cloudModules)
               : [];
             this.archiveGroups = cloudModules && cloudModules.length > 0 ? cloudArchiveGroups : [];
+            // Re-sync currentModule so it references the new array's object, not a stale one
+            if (this.currentModule) {
+              const refreshed = this.modules.find(m => m.id === this.currentModule!.id);
+              this.currentModule = refreshed || null;
+              if (!this.currentModule) this.isDetailView = false;
+            }
             localStorage.setItem(this.storageUidKey, user.uid);
             localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
             localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
@@ -265,6 +271,13 @@ class StudyTrackerApp {
             if (cloudData.updatedAt > this.lastAppliedCloudAt && cloudData.updatedAt > this.localChangeAt) {
               this.modules = this.mergeCloudModules(cloudData.modules as Module[]);
               this.archiveGroups = (cloudData.archiveGroups as ArchiveGroup[]) ?? [];
+              // Re-sync currentModule so workspace mutations don't write to a stale object
+              // that is no longer part of this.modules after the replace above.
+              if (this.currentModule) {
+                const refreshed = this.modules.find(m => m.id === this.currentModule!.id);
+                this.currentModule = refreshed || null;
+                if (!this.currentModule) this.isDetailView = false;
+              }
               localStorage.setItem(this.storageKey, JSON.stringify(this.modules));
               localStorage.setItem(this.archiveStorageKey, JSON.stringify(this.archiveGroups));
               this.localChangeAt = cloudData.updatedAt;
@@ -750,14 +763,19 @@ class StudyTrackerApp {
   private async syncToFirestore(): Promise<void> {
     if (!this.currentUser) return;
     try {
-      this.lastPushAt = await saveUserModules(this.currentUser.uid, this.modules, this.archiveGroups);
-      // Align localChangeAt with the cloud timestamp so the next startup does not see cloud
-      // as "newer" and unnecessarily call applyCloud() (which would overwrite local media
-      // with __local_only__ placeholders that Firestore uses for large videos/PDFs).
-      this.localChangeAt = this.lastPushAt;
-      localStorage.setItem('study-tracker-local-change-at', String(this.localChangeAt));
+      // Pre-compute the timestamp and assign lastPushAt BEFORE the setDoc write.
+      // Firestore delivers the real-time snapshot for our own write before setDoc resolves,
+      // so if we set lastPushAt after the await it's always too late and the self-write
+      // filter in the onSnapshot callback fails — causing erroneous cloud-apply cycles.
+      const updatedAt = Date.now();
+      this.lastPushAt = updatedAt;
+      await saveUserModules(this.currentUser.uid, this.modules, this.archiveGroups, updatedAt);
+      this.localChangeAt = updatedAt;
+      localStorage.setItem('study-tracker-local-change-at', String(updatedAt));
     } catch (err) {
       console.error('Firestore sync failed:', err);
+      // On failure reset lastPushAt so a future retry isn't accidentally filtered
+      this.lastPushAt = 0;
     }
   }
 
