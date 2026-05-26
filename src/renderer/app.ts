@@ -203,6 +203,13 @@ class StudyTrackerApp {
       if (!document.hidden && this.timerRunning) this.timerTick();
     });
 
+    // Flush timer immediately when the window is restored from minimised.
+    // Belt-and-suspenders alongside visibilitychange — Electron's 'restore' event
+    // fires synchronously before the renderer repaints, giving a snappier catch-up.
+    (window as any).electron.ipcRenderer.on('window-restored', () => {
+      if (this.timerRunning) this.timerTick();
+    });
+
     // Firebase auth: re-render on login/logout, load cloud data on sign-in
     onAuthStateChanged(auth, async (user) => {
       // Tear down any previous real-time listener before switching users

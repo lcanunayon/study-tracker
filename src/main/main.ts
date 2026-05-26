@@ -13,6 +13,7 @@ const createWindow = () => {
       preload: path.join(__dirname, '../renderer/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      backgroundThrottling: false,
     },
   });
 
@@ -34,6 +35,12 @@ const createWindow = () => {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // Ping the renderer when the window is restored from minimised so it can
+  // immediately flush wall-clock state rather than waiting for the next tick.
+  mainWindow.on('restore', () => {
+    mainWindow?.webContents.send('window-restored');
   });
 };
 
